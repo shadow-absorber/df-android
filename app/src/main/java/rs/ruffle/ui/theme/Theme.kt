@@ -12,9 +12,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
-const val STRONGLY_DEEMPHASIZED_ALPHA = 0.6f
-const val SLIGHTLY_DEEMPHASIZED_ALPHA = 0.87f
-
 private val lightScheme = lightColorScheme(
     primary = primaryLight,
     onPrimary = onPrimaryLight,

@@ -419,14 +419,6 @@
             android:tag="kb"
             android:text="⌨" />
 
-        <Button
-            android:id="@+id/button_cm"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:checkable="true"
-            android:tag="cm"
-            android:text="▤" />
-
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

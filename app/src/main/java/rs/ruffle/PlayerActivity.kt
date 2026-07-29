@@ -8,47 +8,25 @@ import android.os.Build
 import android.os.Build.VERSION_CODES
 import android.os.Bundle
 import android.util.Log
-import android.view.Menu
-import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.widget.Button
-import android.widget.PopupMenu
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.google.androidgamesdk.GameActivity
-import java.io.DataInputStream
 import java.io.File
-import java.io.IOException
 
 class PlayerActivity : GameActivity() {
     @Suppress("unused")
-    // Used by Rust
+    // Used by Rust — always null, SWF is loaded via HTTP URL
     private val swfBytes: ByteArray?
-        get() {
-            val uri = intent.data
-            if (uri?.scheme == "content") {
-                try {
-                    contentResolver.openInputStream(uri).use { inputStream ->
-                        if (inputStream == null) {
-                            return null
-                        }
-                        val bytes = ByteArray(inputStream.available())
-                        val dataInputStream = DataInputStream(inputStream)
-                        dataInputStream.readFully(bytes)
-                        return bytes
-                    }
-                } catch (ignored: IOException) {
-                }
-            }
-            return null
-        }
+        get() = null
 
     @Suppress("unused")
     // Used by Rust
@@ -101,42 +79,8 @@ class PlayerActivity : GameActivity() {
     private external fun clearContextMenu()
 
     @Suppress("unused")
-    // Used by Rust
+    // Used by Rust — stubbed to no-op (no menu UI)
     private fun showContextMenu(items: Array<String>) {
-        runOnUiThread {
-            val popup = PopupMenu(this, findViewById(R.id.button_cm))
-            val menu = popup.menu
-            if (Build.VERSION.SDK_INT >= VERSION_CODES.P) {
-                menu.setGroupDividerEnabled(true)
-            }
-            var group = 1
-            for (i in items.indices) {
-                val elements = items[i].split(" ".toRegex(), limit = 4).toTypedArray()
-                val enabled = elements[0].toBoolean()
-                val separatorBefore = elements[1].toBoolean()
-                val checked = elements[2].toBoolean()
-                val caption = elements[3]
-                if (separatorBefore) group += 1
-                val item = menu.add(group, i, Menu.NONE, caption)
-                item.setEnabled(enabled)
-                if (checked) {
-                    item.setCheckable(true)
-                    item.setChecked(true)
-                }
-            }
-            val exitItemId: Int = items.size
-            menu.add(group, exitItemId, Menu.NONE, "Exit")
-            popup.setOnMenuItemClickListener { item: MenuItem ->
-                if (item.itemId == exitItemId) {
-                    finish()
-                } else {
-                    runContextMenuCallback(item.itemId)
-                }
-                true
-            }
-            popup.setOnDismissListener { clearContextMenu() }
-            popup.show()
-        }
     }
 
     @Suppress("unused")
@@ -192,8 +136,6 @@ class PlayerActivity : GameActivity() {
                 keyboard.visibility = View.VISIBLE
             }
         }
-        layout.findViewById<View>(R.id.button_cm)
-            .setOnClickListener { requestContextMenu() }
         layout.requestLayout()
         layout.requestFocus()
         mSurfaceView.holder.addCallback(this)
@@ -228,6 +170,11 @@ class PlayerActivity : GameActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        if (intent.data == null) {
+            finish()
+            return
+        }
+
         nativeInit { message ->
             Log.e("ruffle", "Handling panic: $message")
             startActivity(

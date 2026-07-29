@@ -2,8 +2,6 @@ package rs.ruffle.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-val ruffleBlue = Color(0xFF37528c)
-
 val primaryLight = Color(0xFF845400)
 val onPrimaryLight = Color(0xFFFFFFFF)
 val primaryContainerLight = Color(0xFFFFB858)

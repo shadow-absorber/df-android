@@ -29,87 +29,12 @@
             android:launchMode="singleTask"
             android:exported="false">
         </activity>
-        <activity
+                <activity
             android:name=".PlayerActivity"
-            android:exported="true"
+            android:exported="false"
             android:configChanges="orientation|keyboardHidden|screenSize"
-
-            android:screenOrientation="user"
-            >
+            android:screenOrientation="user">
             <meta-data android:name="android.app.lib_name" android:value="ruffle_android" />
-
-            <meta-data
-                android:name="android.support.PARENT_ACTIVITY"
-                android:value=".MainActivity" />
-
-            <!-- Handle only flash related files ( .swf, .spl) -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <category android:name="android.intent.category.OPENABLE"/>
-                <data android:scheme="file"/>
-                <data android:scheme="content"/>
-                <data android:scheme="http"/>
-                <data android:scheme="https"/>
-                <data android:mimeType="application/x-shockwave-flash"/>
-                <data android:mimeType="application/futuresplash"/>
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <category android:name="android.intent.category.OPENABLE"/>
-                <data android:scheme="file"/>
-                <data android:scheme="content"/>
-                <data android:scheme="http"/>
-                <data android:scheme="https"/>
-                <data android:mimeType="*/*"/>
-                <data android:host="*"/>
-                <data android:pathPattern=".*\\.swf"/> <!-- match .swf / .SWF with multiple dots for backwards compatibility -->
-                <data android:pathPattern=".*\\.SWF"/>
-                <data android:pathPattern=".*\\..*\\.swf"/>
-                <data android:pathPattern=".*\\..*\\.SWF"/>
-                <data android:pathPattern=".*\\..*\\..*\\.swf"/>
-                <data android:pathPattern=".*\\..*\\..*\\.SWF"/>
-                <data android:pathPattern=".*\\.spl"/>
-                <data android:pathPattern=".*\\.SPL"/>
-                <data android:pathPattern=".*\\..*\\.spl"/>
-                <data android:pathPattern=".*\\..*\\.SPL"/>
-                <data android:pathPattern=".*\\..*\\..*\\.spl"/>
-                <data android:pathPattern=".*\\..*\\..*\\.SPL"/>
-                <data android:pathSuffix="swf"/> <!-- support Android 12+ pathSuffix -->
-                <data android:pathSuffix="SWF"/>
-                <data android:pathSuffix="spl"/>
-                <data android:pathSuffix="SPL"/>
-            </intent-filter>
-
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW"/>
-                <category android:name="android.intent.category.DEFAULT"/>
-                <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="file"/>
-                <data android:scheme="http"/>
-                <data android:scheme="https"/>
-                <data android:host="*"/>
-                <data android:pathPattern=".*\\.swf"/> <!-- match .swf / .SWF with multiple dots for backwards compatibility -->
-                <data android:pathPattern=".*\\.SWF"/>
-                <data android:pathPattern=".*\\..*\\.swf"/>
-                <data android:pathPattern=".*\\..*\\.SWF"/>
-                <data android:pathPattern=".*\\..*\\..*\\.swf"/>
-                <data android:pathPattern=".*\\..*\\..*\\.SWF"/>
-                <data android:pathPattern=".*\\.spl"/>
-                <data android:pathPattern=".*\\.SPL"/>
-                <data android:pathPattern=".*\\..*\\.spl"/>
-                <data android:pathPattern=".*\\..*\\.SPL"/>
-                <data android:pathPattern=".*\\..*\\..*\\.spl"/>
-                <data android:pathPattern=".*\\..*\\..*\\.SPL"/>
-                <data android:pathSuffix="swf"/> <!-- support Android 12+ pathSuffix -->
-                <data android:pathSuffix="SWF"/>
-                <data android:pathSuffix="spl"/>
-                <data android:pathSuffix="SPL"/>
-            </intent-filter>
         </activity>
     </application>
 </manifest>

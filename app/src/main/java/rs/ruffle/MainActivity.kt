@@ -4,29 +4,18 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import rs.ruffle.ui.theme.RuffleTheme
+
+private const val DEFAULT_SWF_URL = "https://example.com/game.swf"
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
-        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
-        setContent {
-            RuffleTheme {
-                RuffleNavHost(openSwf = { openSwf(it) })
+        startActivity(
+            Intent(this, PlayerActivity::class.java).apply {
+                data = Uri.parse(DEFAULT_SWF_URL)
             }
-        }
-    }
-
-    private fun openSwf(uri: Uri) {
-        val intent = Intent(
-            this@MainActivity,
-            PlayerActivity::class.java
-        ).apply {
-            data = uri
-        }
-        startActivity(intent)
+        )
+        finish()
     }
 }
