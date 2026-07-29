@@ -293,7 +293,10 @@ async fn run(app: AndroidApp) {
                                     )
                                     .unwrap()
                                 };
-                                let movie_url = Url::parse("file://movie.swf").unwrap();
+                                let (jvm, activity) = get_jvm().unwrap();
+                                let mut env = jvm.attach_current_thread().unwrap();
+                                let url = JavaInterface::get_swf_uri(&mut env, &activity);
+                                let movie_url = Url::parse(&url).unwrap_or_else(|_| Url::parse("file://movie.swf").unwrap());
                                 let player_id = PlayerId::new();
 
                                 let future_spawner = AndroidExecutor {
@@ -331,9 +334,6 @@ async fn run(app: AndroidApp) {
 
                                 let player = &playerbox.as_ref().unwrap().player;
                                 let mut player_lock = player.lock().unwrap();
-                                let (jvm, activity) = get_jvm().unwrap();
-                                let mut env = jvm.attach_current_thread().unwrap();
-                                let url = JavaInterface::get_swf_uri(&mut env, &activity);
                                 let bytes = JavaInterface::get_swf_bytes(&mut env, &activity);
 
                                 if let Some(bytes) = bytes {

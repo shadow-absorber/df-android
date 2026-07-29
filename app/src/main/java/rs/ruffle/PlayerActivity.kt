@@ -144,9 +144,6 @@ class PlayerActivity : GameActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val keyboard = findViewById<View>(R.id.keyboard)
-        val isLandscape = newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE
-        keyboard.visibility = if (isLandscape) View.GONE else View.VISIBLE
     }
 
     private fun hideSystemUI() {
