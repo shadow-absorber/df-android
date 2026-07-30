@@ -32,7 +32,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-
         ndk {
             if (abiFilterList == null) {
                 abiFilters.addAll(listOf("arm64-v8a"))
@@ -42,11 +41,11 @@ android {
 
     signingConfigs {
         val keyFile = file("androidkey.jks")
-	val storePasswordVal = System.getenv("SIGNING_STORE_PASSWORD") 
+        val storePasswordVal = System.getenv("SIGNING_STORE_PASSWORD")
             ?: localProperties.getProperty("SIGNING_STORE_PASSWORD")
-        val keyAliasVal = System.getenv("SIGNING_KEY_ALIAS") 
+        val keyAliasVal = System.getenv("SIGNING_KEY_ALIAS")
             ?: localProperties.getProperty("SIGNING_KEY_ALIAS")
-        val keyPasswordVal = System.getenv("SIGNING_KEY_PASSWORD") 
+        val keyPasswordVal = System.getenv("SIGNING_KEY_PASSWORD")
             ?: localProperties.getProperty("SIGNING_KEY_PASSWORD")
 
         if (keyFile.exists() && storePasswordVal != null && storePasswordVal.isNotEmpty()) {
