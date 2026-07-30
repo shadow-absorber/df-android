@@ -172,6 +172,7 @@ class PlayerActivity : GameActivity() {
             return
         }
 
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         nativeInit { message ->
             Log.e("ruffle", "Handling panic: $message")
             startActivity(
