@@ -1,4 +1,4 @@
-use android_activity::AndroidApp;
+use crate::{custom_event::RuffleEvent, EventSender};
 use ruffle_core::backend::ui::{
     DialogResultFuture, FileFilter, FontDefinition, FullscreenError, LanguageIdentifier,
     MouseCursor, MultiDialogResultFuture, NullUiBackend, UiBackend,
@@ -9,17 +9,17 @@ use url::Url;
 /// The [`UiBackend`] for Android.
 ///
 /// Ruffle calls `open_virtual_keyboard` / `close_virtual_keyboard` whenever an editable text
-/// field gains or loses focus, so those map to showing and hiding the Android soft keyboard.
-/// Every other backend operation is delegated to [`NullUiBackend`] until a need arises.
+/// field gains or loses focus. Those requests are queued for the Android event loop, while every
+/// other backend operation is delegated to [`NullUiBackend`] until a need arises.
 pub struct AndroidUiBackend {
-    app: AndroidApp,
+    event_loop: EventSender,
     inner: NullUiBackend,
 }
 
 impl AndroidUiBackend {
-    pub fn new(app: AndroidApp) -> Self {
+    pub fn new(event_loop: EventSender) -> Self {
         Self {
-            app,
+            event_loop,
             inner: NullUiBackend::new(),
         }
     }
@@ -27,11 +27,13 @@ impl AndroidUiBackend {
 
 impl UiBackend for AndroidUiBackend {
     fn open_virtual_keyboard(&self) {
-        self.app.show_soft_input(false);
+        self.event_loop
+            .send(RuffleEvent::SetVirtualKeyboardVisible(true));
     }
 
     fn close_virtual_keyboard(&self) {
-        self.app.hide_soft_input(false);
+        self.event_loop
+            .send(RuffleEvent::SetVirtualKeyboardVisible(false));
     }
 
     fn mouse_visible(&self) -> bool {

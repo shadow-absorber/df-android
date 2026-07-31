@@ -88,6 +88,29 @@ fn motion_input_source(source: Source) -> MouseInputSource {
     }
 }
 
+fn update_touch_gesture_state(
+    source: MouseInputSource,
+    action: MotionAction,
+    active: &mut bool,
+) -> bool {
+    if source != MouseInputSource::Touch {
+        return false;
+    }
+
+    match action {
+        MotionAction::Down => {
+            *active = true;
+            false
+        }
+        MotionAction::Up | MotionAction::Cancel => {
+            let finished = *active;
+            *active = false;
+            finished
+        }
+        _ => false,
+    }
+}
+
 fn should_ignore_touch_action(
     source: MouseInputSource,
     action: MotionAction,
@@ -124,6 +147,43 @@ fn release_pointer(
     if leave_stage {
         player.set_mouse_in_stage(false);
         player.handle_event(PlayerEvent::MouseLeave);
+    }
+}
+
+#[derive(Default)]
+struct VirtualKeyboardState {
+    close_pending: bool,
+}
+
+impl VirtualKeyboardState {
+    fn request_visibility(&mut self, visible: bool, touch_active: bool) -> Option<bool> {
+        if visible {
+            self.close_pending = false;
+            Some(true)
+        } else if touch_active {
+            self.close_pending = true;
+            None
+        } else {
+            self.close_pending = false;
+            Some(false)
+        }
+    }
+
+    fn finish_touch(&mut self, touch_active: bool) -> Option<bool> {
+        if touch_active || !self.close_pending {
+            None
+        } else {
+            self.close_pending = false;
+            Some(false)
+        }
+    }
+}
+
+fn set_virtual_keyboard_visibility(app: &AndroidApp, visible: bool) {
+    if visible {
+        app.show_soft_input(false);
+    } else {
+        app.hide_soft_input(false);
     }
 }
 
@@ -182,6 +242,8 @@ async fn run(app: AndroidApp) {
     let mut native_window: Option<ndk::native_window::NativeWindow> = None;
     let mut playerbox: Option<ActivePlayer> = None;
     let mut active_touch_pointer = None;
+    let mut touch_gesture_active = false;
+    let mut virtual_keyboard = VirtualKeyboardState::default();
     let sender = EventSender {
         sender,
         waker: app.create_waker(),
@@ -202,6 +264,7 @@ async fn run(app: AndroidApp) {
 
     while !quit {
         let mut needs_redraw = false;
+        let mut touch_finished = false;
         app.poll_events(
             Some(
                 next_frame_time
@@ -374,7 +437,7 @@ async fn run(app: AndroidApp) {
                                             .with_storage(Box::new(DiskStorageBackend::new(android_storage_dir.clone())))
                                             .with_navigator(navigator)
                                             .with_log(FileLogBackend::new(trace_output.as_deref()))
-                                            .with_ui(ui::AndroidUiBackend::new(app.clone()))
+                                            .with_ui(ui::AndroidUiBackend::new(sender.clone()))
                                             .with_video(
                                                 ruffle_video_software::backend::SoftwareVideoBackend::new(),
                                             )
@@ -420,6 +483,11 @@ async fn run(app: AndroidApp) {
 
                                         let pointer = event.pointer_at_index(event.pointer_index());
                                         let pointer_id = pointer.pointer_id();
+                                        touch_finished |= update_touch_gesture_state(
+                                            source,
+                                            action,
+                                            &mut touch_gesture_active,
+                                        );
                                         if should_ignore_touch_action(
                                             source,
                                             action,
@@ -560,6 +628,13 @@ async fn run(app: AndroidApp) {
                     }
                 }
             }
+            Ok(RuffleEvent::SetVirtualKeyboardVisible(visible)) => {
+                if let Some(visible) = virtual_keyboard
+                    .request_visibility(visible, touch_gesture_active)
+                {
+                    set_virtual_keyboard_visibility(&app, visible);
+                }
+            }
             Ok(RuffleEvent::VirtualKeyEvent {
                 down,
                 key_descriptor,
@@ -608,6 +683,12 @@ async fn run(app: AndroidApp) {
                     JavaInterface::show_context_menu(&mut env, &activity, &items);
                 }
             }
+        }
+
+        if touch_finished
+            && let Some(visible) = virtual_keyboard.finish_touch(touch_gesture_active)
+        {
+            set_virtual_keyboard_visibility(&app, visible);
         }
 
         let new_time = Instant::now();
@@ -831,7 +912,10 @@ fn android_main(app: AndroidApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::{motion_input_source, should_ignore_touch_action};
+    use super::{
+        motion_input_source, should_ignore_touch_action, update_touch_gesture_state,
+        VirtualKeyboardState,
+    };
     use android_activity::input::{MotionAction, Source};
     use ruffle_core::events::MouseInputSource;
 
@@ -843,6 +927,85 @@ mod tests {
         );
         assert_eq!(motion_input_source(Source::Mouse), MouseInputSource::Mouse);
         assert_eq!(motion_input_source(Source::Stylus), MouseInputSource::Mouse);
+    }
+
+    #[test]
+    fn touch_gesture_finishes_only_on_final_up_or_cancel() {
+        let mut active = false;
+
+        assert!(!update_touch_gesture_state(
+            MouseInputSource::Touch,
+            MotionAction::Down,
+            &mut active,
+        ));
+        assert!(active);
+        assert!(!update_touch_gesture_state(
+            MouseInputSource::Touch,
+            MotionAction::PointerUp,
+            &mut active,
+        ));
+        assert!(active);
+        assert!(update_touch_gesture_state(
+            MouseInputSource::Touch,
+            MotionAction::Up,
+            &mut active,
+        ));
+        assert!(!active);
+
+        active = true;
+        assert!(update_touch_gesture_state(
+            MouseInputSource::Touch,
+            MotionAction::Cancel,
+            &mut active,
+        ));
+        assert!(!active);
+    }
+
+    #[test]
+    fn mouse_does_not_change_touch_gesture_state() {
+        let mut active = true;
+
+        assert!(!update_touch_gesture_state(
+            MouseInputSource::Mouse,
+            MotionAction::Up,
+            &mut active,
+        ));
+        assert!(active);
+    }
+
+    #[test]
+    fn keyboard_close_waits_for_touch_to_finish() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(false, true), None);
+        assert_eq!(keyboard.finish_touch(false), Some(false));
+        assert_eq!(keyboard.finish_touch(false), None);
+    }
+
+    #[test]
+    fn keyboard_close_is_immediate_without_active_touch() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(false, false), Some(false));
+        assert_eq!(keyboard.finish_touch(false), None);
+    }
+
+    #[test]
+    fn keyboard_open_is_immediate_and_cancels_pending_close() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(false, true), None);
+        assert_eq!(keyboard.request_visibility(true, true), Some(true));
+        assert_eq!(keyboard.finish_touch(false), None);
+    }
+
+    #[test]
+    fn new_touch_keeps_keyboard_close_pending() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(false, true), None);
+        assert_eq!(keyboard.finish_touch(true), None);
+        assert_eq!(keyboard.finish_touch(false), Some(false));
     }
 
     #[test]

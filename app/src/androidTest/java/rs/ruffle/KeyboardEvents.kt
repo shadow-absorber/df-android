@@ -74,31 +74,48 @@ class KeyboardEvents {
 
     @Test
     fun keyboardShowsWhenTextFieldIsFocused() {
-        val player = device.wait(
-            Until.findObject(By.desc("Ruffle Player")),
-            LAUNCH_TIMEOUT
-        ) ?: throw TimeoutException("Ruffle Player surface never appeared")
+        val player = waitForPlayer()
 
-        // Give the movie a moment to load and render its first frame.
-        Thread.sleep(2000)
+        device.click(screenToSwf(player.visibleBounds, Point(400, 300)))
 
-        // The movie's editable text field spans (200, 150) to (600, 450)
-        // on its 800x600 stage; tapping its center should focus it.
-        val fieldCenter = screenToSwf(player.visibleBounds, Point(400, 300))
-        device.click(fieldCenter)
-
-        waitUntilImeVisible()
+        waitUntilImeVisibility(true)
     }
 
-    private fun waitUntilImeVisible(timeoutMillis: Long = 5000) {
+    @Test
+    fun keyboardHidesOnFocusLossAndPlayerRemainsResponsive() {
+        val player = waitForPlayer()
+        val fieldCenter = Point(400, 300)
+        val outsideField = Point(50, 50)
+
+        device.click(screenToSwf(player.visibleBounds, fieldCenter))
+        waitUntilImeVisibility(true)
+
+        device.click(screenToSwf(player.visibleBounds, outsideField))
+        waitUntilImeVisibility(false)
+
+        device.click(screenToSwf(player.visibleBounds, fieldCenter))
+        waitUntilImeVisibility(true)
+    }
+
+    private fun waitForPlayer() = device.wait(
+        Until.findObject(By.desc("Ruffle Player")),
+        LAUNCH_TIMEOUT
+    )?.also {
+        Thread.sleep(2000)
+    } ?: throw TimeoutException("Ruffle Player surface never appeared")
+
+    private fun waitUntilImeVisibility(expectedVisible: Boolean, timeoutMillis: Long = 5000) {
         val timeoutAt = SystemClock.uptimeMillis() + timeoutMillis
         while (SystemClock.uptimeMillis() < timeoutAt) {
-            if (isImeVisible()) {
+            if (isImeVisible() == expectedVisible) {
                 return
             }
             Thread.sleep(100)
         }
-        throw TimeoutException("Soft keyboard did not appear within $timeoutMillis ms")
+        throw TimeoutException(
+            "Soft keyboard did not become ${if (expectedVisible) "visible" else "hidden"} " +
+                "within $timeoutMillis ms"
+        )
     }
 
     private fun isImeVisible(): Boolean {
