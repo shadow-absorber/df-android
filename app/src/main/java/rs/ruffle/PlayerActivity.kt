@@ -1,18 +1,22 @@
 package rs.ruffle
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.res.Configuration
 import android.net.Uri
 import android.os.Build
 import android.os.Build.VERSION_CODES
 import android.os.Bundle
+import android.text.InputType
 import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
 import android.widget.Button
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
@@ -81,6 +85,22 @@ class PlayerActivity : GameActivity() {
     @Suppress("unused")
     // Used by Rust — stubbed to no-op (no menu UI)
     private fun showContextMenu(items: Array<String>) {
+    }
+
+    @Suppress("unused")
+    private fun getClipboardContent(): String {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        val clip = clipboard.primaryClip ?: return ""
+        if (clip.itemCount == 0) {
+            return ""
+        }
+        return clip.getItemAt(0).coerceToText(this)?.toString().orEmpty()
+    }
+
+    @Suppress("unused")
+    private fun setClipboardContent(content: String) {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("Ruffle", content))
     }
 
     @Suppress("unused")
@@ -185,10 +205,11 @@ class PlayerActivity : GameActivity() {
         // When false, we render behind any system UI windows.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemUI()
-        // You can set IME fields here or in native code using GameActivity_setImeEditorInfoFields.
-        // We set the fields in native_engine.cpp.
-        // super.setImeEditorInfoFields(InputType.TYPE_CLASS_TEXT,
-        //     IME_ACTION_NONE, IME_FLAG_NO_FULLSCREEN );
+        setImeEditorInfoFields(
+            InputType.TYPE_CLASS_TEXT,
+            EditorInfo.IME_ACTION_NONE,
+            EditorInfo.IME_FLAG_NO_FULLSCREEN
+        )
         requestNoStatusBarFeature()
         supportActionBar?.hide()
         super.onCreate(savedInstanceState)

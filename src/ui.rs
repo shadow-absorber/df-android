@@ -1,4 +1,5 @@
-use crate::{custom_event::RuffleEvent, EventSender};
+use crate::{EventSender, custom_event::RuffleEvent, get_jvm, java::JavaInterface};
+use jni::{JNIEnv, objects::JObject};
 use ruffle_core::backend::ui::{
     DialogResultFuture, FileFilter, FontDefinition, FullscreenError, LanguageIdentifier,
     MouseCursor, MultiDialogResultFuture, NullUiBackend, UiBackend,
@@ -9,8 +10,8 @@ use url::Url;
 /// The [`UiBackend`] for Android.
 ///
 /// Ruffle calls `open_virtual_keyboard` / `close_virtual_keyboard` whenever an editable text
-/// field gains or loses focus. Those requests are queued for the Android event loop, while every
-/// other backend operation is delegated to [`NullUiBackend`] until a need arises.
+/// field gains or loses focus. Those requests are queued for the Android event loop. Clipboard
+/// access uses Android's system clipboard, while unsupported operations use [`NullUiBackend`].
 pub struct AndroidUiBackend {
     event_loop: EventSender,
     inner: NullUiBackend,
@@ -23,6 +24,24 @@ impl AndroidUiBackend {
             inner: NullUiBackend::new(),
         }
     }
+}
+
+fn with_player_activity<T>(callback: impl FnOnce(&mut JNIEnv, &JObject) -> T) -> Option<T> {
+    let (jvm, activity) = match get_jvm() {
+        Ok(context) => context,
+        Err(error) => {
+            log::error!("Unable to access PlayerActivity: {error}");
+            return None;
+        }
+    };
+    let mut env = match jvm.attach_current_thread() {
+        Ok(env) => env,
+        Err(error) => {
+            log::error!("Unable to attach clipboard operation to the JVM: {error}");
+            return None;
+        }
+    };
+    Some(callback(&mut env, &activity))
 }
 
 impl UiBackend for AndroidUiBackend {
@@ -49,11 +68,13 @@ impl UiBackend for AndroidUiBackend {
     }
 
     fn clipboard_content(&mut self) -> String {
-        self.inner.clipboard_content()
+        with_player_activity(JavaInterface::get_clipboard_content).unwrap_or_default()
     }
 
     fn set_clipboard_content(&mut self, content: String) {
-        self.inner.set_clipboard_content(content)
+        with_player_activity(|env, activity| {
+            JavaInterface::set_clipboard_content(env, activity, &content)
+        });
     }
 
     fn set_fullscreen(&mut self, is_full: bool) -> Result<(), FullscreenError> {

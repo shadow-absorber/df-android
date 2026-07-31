@@ -1,8 +1,8 @@
+use jni::JNIEnv;
 use jni::objects::{
     JByteArray, JClass, JIntArray, JMethodID, JObject, JString, JValue, ReleaseMode,
 };
 use jni::signature::{Primitive, ReturnType};
-use jni::JNIEnv;
 use ruffle_core::ContextMenuItem;
 use std::path::PathBuf;
 use std::sync::OnceLock;
@@ -20,6 +20,8 @@ pub struct JavaInterface {
     get_trace_output: JMethodID,
     get_loc_in_window: JMethodID,
     get_android_data_storage_dir: JMethodID,
+    get_clipboard_content: JMethodID,
+    set_clipboard_content: JMethodID,
 }
 
 static JAVA_INTERFACE: OnceLock<JavaInterface> = OnceLock::new();
@@ -165,6 +167,40 @@ impl JavaInterface {
         PathBuf::from(path)
     }
 
+    pub fn get_clipboard_content(env: &mut JNIEnv, this: &JObject) -> String {
+        let result = unsafe {
+            env.call_method_unchecked(
+                this,
+                Self::get().get_clipboard_content,
+                ReturnType::Object,
+                &[],
+            )
+        };
+        let object = result
+            .expect("getClipboardContent() must never throw")
+            .l()
+            .unwrap();
+        let string_object = JString::from(object);
+        env.get_string(&string_object)
+            .expect("getClipboardContent() must return a string")
+            .into()
+    }
+
+    pub fn set_clipboard_content(env: &mut JNIEnv, this: &JObject, content: &str) {
+        let content = env
+            .new_string(content)
+            .expect("clipboard content must be convertible to a Java string");
+        let result = unsafe {
+            env.call_method_unchecked(
+                this,
+                Self::get().set_clipboard_content,
+                ReturnType::Primitive(Primitive::Void),
+                &[JValue::Object(&content).as_jni()],
+            )
+        };
+        result.expect("setClipboardContent() must never throw");
+    }
+
     pub fn get() -> &'static JavaInterface {
         JAVA_INTERFACE
             .get()
@@ -197,6 +233,12 @@ impl JavaInterface {
             get_android_data_storage_dir: env
                 .get_method_id(class, "getAndroidDataStorageDir", "()Ljava/lang/String;")
                 .expect("getAndroidDataStorageDir must exist"),
+            get_clipboard_content: env
+                .get_method_id(class, "getClipboardContent", "()Ljava/lang/String;")
+                .expect("getClipboardContent must exist"),
+            set_clipboard_content: env
+                .get_method_id(class, "setClipboardContent", "(Ljava/lang/String;)V")
+                .expect("setClipboardContent must exist"),
         });
     }
 }

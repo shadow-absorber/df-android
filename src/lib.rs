@@ -3,21 +3,22 @@ mod custom_event;
 mod java;
 mod keycodes;
 mod navigator;
+mod text_input;
 mod trace;
 mod ui;
 
 use custom_event::RuffleEvent;
 
 use jni::{
+    JNIEnv, JavaVM,
     objects::{JObject, JString},
     sys::{self, jint, jobject},
-    JNIEnv, JavaVM,
 };
 use keycodes::{android_key_event_to_ruffle_key_descriptor, key_tag_to_key_descriptor};
 use std::any::Any;
 use std::rc::Rc;
 use std::sync::mpsc::Sender;
-use std::sync::{mpsc, MutexGuard};
+use std::sync::{MutexGuard, mpsc};
 use std::time::Duration;
 use std::{
     panic,
@@ -27,7 +28,9 @@ use std::{
 };
 use wgpu::rwh::{AndroidDisplayHandle, HasWindowHandle, RawDisplayHandle};
 
-use android_activity::input::{InputEvent, KeyAction, MotionAction, Source};
+use android_activity::input::{
+    InputEvent, KeyAction, MotionAction, Source, TextInputState, TextSpan,
+};
 use android_activity::{AndroidApp, AndroidAppWaker, InputStatus, MainEvent, PollEvent};
 use backtrace::Backtrace;
 use jni::objects::JClass;
@@ -37,10 +40,10 @@ use url::Url;
 
 use ruffle_common::duration::FloatDuration;
 use ruffle_core::{
-    backend::navigator::OwnedFuture,
-    events::{LogicalKey, MouseButton, MouseInputSource, PlayerEvent},
-    tag_utils::SwfMovie,
     Player, PlayerBuilder, ViewportDimensions,
+    backend::navigator::OwnedFuture,
+    events::{ImeEvent, LogicalKey, MouseButton, MouseInputSource, PlayerEvent, TextControlCode},
+    tag_utils::SwfMovie,
 };
 use ruffle_frontend_utils::backends::storage::DiskStorageBackend;
 use ruffle_frontend_utils::content::PlayingContent;
@@ -50,6 +53,9 @@ use ruffle_frontend_utils::{
 };
 
 use crate::navigator::AndroidNavigatorInterface;
+use crate::text_input::{
+    NativeTextControl, TextInputAction, TextInputSnapshot, TextInputStateMachine,
+};
 use crate::trace::FileLogBackend;
 use java::JavaInterface;
 use ruffle_render_wgpu::{backend::WgpuRenderBackend, target::SwapChainTarget};
@@ -150,6 +156,49 @@ fn release_pointer(
     }
 }
 
+fn handle_native_text_input(player: &mut Player, action: TextInputAction) {
+    match action {
+        TextInputAction::Preedit(text, cursor) => {
+            player.handle_event(PlayerEvent::Ime(ImeEvent::Preedit(text, cursor)));
+        }
+        TextInputAction::Commit(text) => {
+            player.handle_event(PlayerEvent::Ime(ImeEvent::Commit(text)));
+        }
+        TextInputAction::Control { code, repeat } => {
+            let code = match code {
+                NativeTextControl::MoveLeft => TextControlCode::MoveLeft,
+                NativeTextControl::MoveRight => TextControlCode::MoveRight,
+                NativeTextControl::SelectLeft => TextControlCode::SelectLeft,
+                NativeTextControl::SelectRight => TextControlCode::SelectRight,
+                NativeTextControl::Backspace => TextControlCode::Backspace,
+                NativeTextControl::Delete => TextControlCode::Delete,
+            };
+            for _ in 0..repeat {
+                player.handle_event(PlayerEvent::TextControl { code });
+            }
+        }
+    }
+}
+
+const TEXT_INPUT_GUARD: &str = "\u{200b}\u{2060}";
+const TEXT_INPUT_GUARD_CURSOR: usize = 1;
+
+fn reset_android_text_input(app: &AndroidApp, text_input: &mut TextInputStateMachine) {
+    text_input.reset(TextInputSnapshot::from_utf16(
+        TEXT_INPUT_GUARD.to_string(),
+        (TEXT_INPUT_GUARD_CURSOR, TEXT_INPUT_GUARD_CURSOR),
+        None,
+    ));
+    app.set_text_input_state(TextInputState {
+        text: TEXT_INPUT_GUARD.to_string(),
+        selection: TextSpan {
+            start: TEXT_INPUT_GUARD_CURSOR,
+            end: TEXT_INPUT_GUARD_CURSOR,
+        },
+        compose_region: None,
+    });
+}
+
 #[derive(Default)]
 struct VirtualKeyboardState {
     close_pending: bool,
@@ -244,6 +293,7 @@ async fn run(app: AndroidApp) {
     let mut active_touch_pointer = None;
     let mut touch_gesture_active = false;
     let mut virtual_keyboard = VirtualKeyboardState::default();
+    let mut text_input = TextInputStateMachine::default();
     let sender = EventSender {
         sender,
         waker: app.create_waker(),
@@ -603,6 +653,31 @@ async fn run(app: AndroidApp) {
 
                                         InputStatus::Handled
                                     }
+                                    InputEvent::TextEvent(state) => {
+                                        if let Some(player) = playerbox.as_ref() {
+                                            let composition = state
+                                                .compose_region
+                                                .filter(|range| range.start != range.end);
+                                            let snapshot = TextInputSnapshot::from_utf16(
+                                                state.text.clone(),
+                                                (state.selection.start, state.selection.end),
+                                                composition.map(|range| (range.start, range.end)),
+                                            );
+                                            let actions = text_input.handle(snapshot);
+                                            {
+                                                let mut player = player.player.lock().unwrap();
+                                                for action in actions {
+                                                    handle_native_text_input(&mut player, action);
+                                                }
+                                            }
+                                            if composition.is_none() {
+                                                reset_android_text_input(&app, &mut text_input);
+                                            }
+                                            needs_redraw = true;
+                                        }
+
+                                        InputStatus::Handled
+                                    }
                                     _ => InputStatus::Unhandled,
                                 }) {}
                             }
@@ -629,8 +704,11 @@ async fn run(app: AndroidApp) {
                 }
             }
             Ok(RuffleEvent::SetVirtualKeyboardVisible(visible)) => {
-                if let Some(visible) = virtual_keyboard
-                    .request_visibility(visible, touch_gesture_active)
+                if visible {
+                    reset_android_text_input(&app, &mut text_input);
+                }
+                if let Some(visible) =
+                    virtual_keyboard.request_visibility(visible, touch_gesture_active)
                 {
                     set_virtual_keyboard_visibility(&app, visible);
                 }
@@ -685,8 +763,7 @@ async fn run(app: AndroidApp) {
             }
         }
 
-        if touch_finished
-            && let Some(visible) = virtual_keyboard.finish_touch(touch_gesture_active)
+        if touch_finished && let Some(visible) = virtual_keyboard.finish_touch(touch_gesture_active)
         {
             set_virtual_keyboard_visibility(&app, visible);
         }
@@ -913,8 +990,8 @@ fn android_main(app: AndroidApp) {
 #[cfg(test)]
 mod tests {
     use super::{
-        motion_input_source, should_ignore_touch_action, update_touch_gesture_state,
-        VirtualKeyboardState,
+        VirtualKeyboardState, motion_input_source, should_ignore_touch_action,
+        update_touch_gesture_state,
     };
     use android_activity::input::{MotionAction, Source};
     use ruffle_core::events::MouseInputSource;
