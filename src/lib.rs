@@ -26,7 +26,7 @@ use std::{
 };
 use wgpu::rwh::{AndroidDisplayHandle, HasWindowHandle, RawDisplayHandle};
 
-use android_activity::input::{InputEvent, KeyAction, MotionAction};
+use android_activity::input::{InputEvent, KeyAction, MotionAction, Source};
 use android_activity::{AndroidApp, AndroidAppWaker, InputStatus, MainEvent, PollEvent};
 use backtrace::Backtrace;
 use jni::objects::JClass;
@@ -37,7 +37,7 @@ use url::Url;
 use ruffle_common::duration::FloatDuration;
 use ruffle_core::{
     backend::navigator::OwnedFuture,
-    events::{LogicalKey, MouseButton, PlayerEvent},
+    events::{LogicalKey, MouseButton, MouseInputSource, PlayerEvent},
     tag_utils::SwfMovie,
     Player, PlayerBuilder, ViewportDimensions,
 };
@@ -77,6 +77,53 @@ pub struct PlayerRunnable(async_task::Runnable<PlayerId>);
 struct ActivePlayer {
     id: PlayerId,
     player: Arc<Mutex<Player>>,
+}
+
+fn motion_input_source(source: Source) -> MouseInputSource {
+    if source == Source::Touchscreen {
+        MouseInputSource::Touch
+    } else {
+        MouseInputSource::Mouse
+    }
+}
+
+fn should_ignore_touch_action(
+    source: MouseInputSource,
+    action: MotionAction,
+    active_pointer: Option<i32>,
+    pointer_id: i32,
+) -> bool {
+    if source != MouseInputSource::Touch {
+        return false;
+    }
+
+    match action {
+        MotionAction::PointerDown => true,
+        MotionAction::Move | MotionAction::Up | MotionAction::PointerUp => {
+            active_pointer != Some(pointer_id)
+        }
+        MotionAction::Cancel => active_pointer.is_none(),
+        _ => false,
+    }
+}
+
+fn release_pointer(
+    player: &mut Player,
+    x: f64,
+    y: f64,
+    source: MouseInputSource,
+    leave_stage: bool,
+) {
+    player.handle_event(PlayerEvent::MouseUp {
+        x,
+        y,
+        button: MouseButton::Left,
+        source,
+    });
+    if leave_stage {
+        player.set_mouse_in_stage(false);
+        player.handle_event(PlayerEvent::MouseLeave);
+    }
 }
 
 #[derive(Clone)]
@@ -133,6 +180,7 @@ async fn run(app: AndroidApp) {
     let (sender, receiver) = mpsc::channel::<RuffleEvent>();
     let mut native_window: Option<ndk::native_window::NativeWindow> = None;
     let mut playerbox: Option<ActivePlayer> = None;
+    let mut active_touch_pointer = None;
     let sender = EventSender {
         sender,
         waker: app.create_waker(),
@@ -365,41 +413,81 @@ async fn run(app: AndroidApp) {
                             if let Ok(mut inputs) = app.input_events_iter() {
                                 while inputs.next(|input| match input {
                                     InputEvent::MotionEvent(event) => {
+                                        let action = event.action();
+                                        let source = motion_input_source(event.source());
+
+                                        let pointer = event.pointer_at_index(event.pointer_index());
+                                        let pointer_id = pointer.pointer_id();
+                                        if should_ignore_touch_action(
+                                            source,
+                                            action,
+                                            active_touch_pointer,
+                                            pointer_id,
+                                        ) {
+                                            return InputStatus::Handled;
+                                        }
+                                        if source == MouseInputSource::Touch
+                                            && action == MotionAction::Down
+                                        {
+                                            active_touch_pointer = Some(pointer_id);
+                                        }
+
                                         let window = native_window.as_ref().unwrap();
-                                        let pointer = event.pointer_index();
-                                        let pointer = event.pointer_at_index(pointer);
                                         let coords: (i32, i32) = get_loc_in_window();
                                         let mut x = pointer.x() as f64 - coords.0 as f64;
                                         let mut y = pointer.y() as f64 - coords.1 as f64;
                                         let view_size = get_view_size().unwrap();
                                         x = x * window.width() as f64 / view_size.0 as f64;
                                         y = y * window.height() as f64 / view_size.1 as f64;
-                                        let ruffle_event = match event.action() {
-                                            MotionAction::Down | MotionAction::PointerDown | MotionAction::ButtonPress => {
-                                                PlayerEvent::MouseDown {
-                                                    x,
-                                                    y,
-                                                    button: MouseButton::Left, // TODO
-                                                    index: None, // TODO
-                                                }
-                                            }
-                                            MotionAction::Up | MotionAction::PointerUp | MotionAction::ButtonRelease => {
-                                                PlayerEvent::MouseUp {
-                                                    x,
-                                                    y,
-                                                    button: MouseButton::Left, // TODO
-                                                }
-                                            }
-                                            MotionAction::Move => PlayerEvent::MouseMove { x, y },
-                                            _ => return InputStatus::Unhandled,
-                                        };
 
-                                        if let Some(player) = playerbox.as_ref() {
-                                            player
-                                                .player
-                                                .lock()
-                                                .unwrap()
-                                                .handle_event(ruffle_event);
+                                        let Some(player) = playerbox.as_ref() else {
+                                            if source == MouseInputSource::Touch
+                                                && matches!(
+                                                    action,
+                                                    MotionAction::Up
+                                                        | MotionAction::PointerUp
+                                                        | MotionAction::Cancel
+                                                )
+                                            {
+                                                active_touch_pointer = None;
+                                            }
+                                            return InputStatus::Handled;
+                                        };
+                                        let mut player = player.player.lock().unwrap();
+                                        match action {
+                                            MotionAction::Down | MotionAction::ButtonPress => {
+                                                player.set_mouse_in_stage(true);
+                                                player.handle_event(PlayerEvent::MouseDown {
+                                                    x,
+                                                    y,
+                                                    button: MouseButton::Left,
+                                                    index: None,
+                                                    source,
+                                                });
+                                            }
+                                            MotionAction::Up
+                                            | MotionAction::PointerUp
+                                            | MotionAction::ButtonRelease
+                                            | MotionAction::Cancel => {
+                                                release_pointer(
+                                                    &mut player,
+                                                    x,
+                                                    y,
+                                                    source,
+                                                    source == MouseInputSource::Touch,
+                                                );
+                                                if source == MouseInputSource::Touch {
+                                                    active_touch_pointer = None;
+                                                }
+                                            }
+                                            MotionAction::Move => {
+                                                player.handle_event(PlayerEvent::MouseMove {
+                                                    x,
+                                                    y,
+                                                    source,
+                                                });
+                                            }
+                                            _ => return InputStatus::Unhandled,
                                         }
 
                                         InputStatus::Handled
@@ -737,4 +825,67 @@ fn get_view_size() -> Result<(i32, i32), Box<dyn std::error::Error>> {
 fn android_main(app: AndroidApp) {
     log::info!("Starting android_main...");
     run(app);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{motion_input_source, should_ignore_touch_action};
+    use android_activity::input::{MotionAction, Source};
+    use ruffle_core::events::MouseInputSource;
+
+    #[test]
+    fn touchscreen_is_touch_input() {
+        assert_eq!(
+            motion_input_source(Source::Touchscreen),
+            MouseInputSource::Touch
+        );
+        assert_eq!(motion_input_source(Source::Mouse), MouseInputSource::Mouse);
+        assert_eq!(motion_input_source(Source::Stylus), MouseInputSource::Mouse);
+    }
+
+    #[test]
+    fn filters_touch_pointer_actions() {
+        assert!(should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::PointerDown,
+            Some(1),
+            2,
+        ));
+        assert!(should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::PointerUp,
+            Some(1),
+            2,
+        ));
+        assert!(!should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::PointerUp,
+            Some(1),
+            1,
+        ));
+        assert!(should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::Move,
+            None,
+            1,
+        ));
+        assert!(should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::Cancel,
+            None,
+            1,
+        ));
+        assert!(!should_ignore_touch_action(
+            MouseInputSource::Touch,
+            MotionAction::Cancel,
+            Some(1),
+            1,
+        ));
+        assert!(!should_ignore_touch_action(
+            MouseInputSource::Mouse,
+            MotionAction::PointerDown,
+            Some(1),
+            2,
+        ));
+    }
 }
