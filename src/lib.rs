@@ -648,7 +648,7 @@ async fn run(app: AndroidApp) {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keydown(
     mut env: JNIEnv,
@@ -661,7 +661,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keydown(
         .into();
 
     let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        env.get_rust_field(this, "eventLoopHandle").unwrap();
+        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
     if let Some(desc) = key_tag_to_key_descriptor(&tag) {
         let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
             down: true,
@@ -670,7 +670,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keydown(
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keyup(
     mut env: JNIEnv,
@@ -683,7 +683,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keyup(
         .into();
 
     let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        env.get_rust_field(this, "eventLoopHandle").unwrap();
+        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
     if let Some(desc) = key_tag_to_key_descriptor(&tag) {
         let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
             down: false,
@@ -701,18 +701,18 @@ pub fn get_jvm<'a>() -> Result<(jni::JavaVM, JObject<'a>), Box<dyn std::error::E
     Ok((vm, activity))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_requestContextMenu(
     mut env: JNIEnv,
     this: JObject,
 ) {
     let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        env.get_rust_field(this, "eventLoopHandle").unwrap();
+        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
     let _ = event_loop.send(RuffleEvent::RequestContextMenu);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_runContextMenuCallback(
     mut env: JNIEnv,
@@ -720,22 +720,22 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_runContextMenuCallback(
     index: jint,
 ) {
     let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        env.get_rust_field(this, "eventLoopHandle").unwrap();
+        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
     let _ = event_loop.send(RuffleEvent::RunContextMenuCallback(index as usize));
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_clearContextMenu(
     mut env: JNIEnv,
     this: JObject,
 ) {
     let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        env.get_rust_field(this, "eventLoopHandle").unwrap();
+        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
     let _ = event_loop.send(RuffleEvent::ClearContextMenu);
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_nativeInit(
     mut env: JNIEnv,
@@ -823,7 +823,7 @@ fn get_view_size() -> Result<(i32, i32), Box<dyn std::error::Error>> {
     Ok((width, height))
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
     log::info!("Starting android_main...");
     run(app);

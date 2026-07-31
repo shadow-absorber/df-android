@@ -7,7 +7,7 @@ authors = [
     "TÖRÖK Attila <torokati44@gmail.com>",
     "Nathan Adams <dinnerbone@dinnerbone.com>",
 ]
-edition = "2018"
+edition = "2024"
 resolver = "2"
 license = "MIT OR Apache-2.0"
 
