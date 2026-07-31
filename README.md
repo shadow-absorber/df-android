@@ -32,7 +32,7 @@ Please see [CONTRIBUTING.md](CONTRIBUTING.md#building-from-source) for details a
 
 In no particular order:
 
-- [ ] Ability to show the built-in virtual keyboard (softinput), for text input
+- [x] Ability to show the built-in virtual keyboard (softinput), for text input
 - [ ] Controller/Gamepad input?
   - Mapped to key presses and/or virtual mouse pointer
 - [ ] Own custom keyboard overlay, maybe even per-content configs
