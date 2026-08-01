@@ -682,18 +682,34 @@ async fn run(app: AndroidApp) {
                                                 composition.map(|range| (range.start, range.end)),
                                             );
                                             let actions = text_input.handle(snapshot);
+                                            let guard_collapsed = state.text.chars().count()
+                                                < TEXT_INPUT_GUARD.chars().count()
+                                                && actions.iter().any(|action| {
+                                                    matches!(
+                                                        action,
+                                                        TextInputAction::Control {
+                                                            code:
+                                                                NativeTextControl::Backspace
+                                                                | NativeTextControl::Delete,
+                                                            ..
+                                                        }
+                                                    )
+                                                });
                                             {
                                                 let mut player = player.player.lock().unwrap();
                                                 for action in actions {
                                                     handle_native_text_input(&mut player, action);
                                                 }
                                             }
-                                            // No IME state reset here: games-activity 4.x
-                                            // restarts the IME on every setState call, so
-                                            // re-arming the guard per keystroke would freeze
-                                            // the keyboard. The state machine diffs the full
-                                            // buffer snapshots and the guard is re-armed when
-                                            // the keyboard is shown.
+                                            if guard_collapsed {
+                                                // The IME buffer collapsed below the guard,
+                                                // so re-arm it to keep backspace working
+                                                // through the game's pre-existing text.
+                                                // games-activity 4.x restarts the IME on every
+                                                // setState call, so this must not happen per
+                                                // regular keystroke.
+                                                reset_android_text_input(&app, &mut text_input);
+                                            }
                                             needs_redraw = true;
                                         }
 
