@@ -210,7 +210,15 @@ struct VirtualKeyboardState {
 }
 
 impl VirtualKeyboardState {
-    fn request_visibility(&mut self, visible: bool, touch_active: bool) -> Option<bool> {
+    fn request_visibility(
+        &mut self,
+        visible: bool,
+        touch_active: bool,
+        user_interacted: bool,
+    ) -> Option<bool> {
+        if !user_interacted {
+            return None;
+        }
         if visible {
             self.close_pending = false;
             Some(true)
@@ -297,6 +305,7 @@ async fn run(app: AndroidApp) {
     let mut playerbox: Option<ActivePlayer> = None;
     let mut active_touch_pointer = None;
     let mut touch_gesture_active = false;
+    let mut user_interacted = false;
     let mut virtual_keyboard = VirtualKeyboardState::default();
     let mut text_input = TextInputStateMachine::default();
     let sender = EventSender {
@@ -594,6 +603,7 @@ async fn run(app: AndroidApp) {
                                         let mut player = player.player.lock().unwrap();
                                         match action {
                                             MotionAction::Down | MotionAction::ButtonPress => {
+                                                user_interacted = true;
                                                 player.set_mouse_in_stage(true);
                                                 player.handle_event(PlayerEvent::MouseDown {
                                                     x,
@@ -741,11 +751,11 @@ async fn run(app: AndroidApp) {
                 }
             }
             Ok(RuffleEvent::SetVirtualKeyboardVisible(visible)) => {
-                if visible {
+                if visible && user_interacted {
                     reset_android_text_input(&app, &mut text_input);
                 }
-                if let Some(visible) =
-                    virtual_keyboard.request_visibility(visible, touch_gesture_active)
+                if let Some(visible) = virtual_keyboard
+                    .request_visibility(visible, touch_gesture_active, user_interacted)
                 {
                     set_virtual_keyboard_visibility(&app, visible);
                 }
@@ -1067,7 +1077,7 @@ mod tests {
     fn keyboard_close_waits_for_touch_to_finish() {
         let mut keyboard = VirtualKeyboardState::default();
 
-        assert_eq!(keyboard.request_visibility(false, true), None);
+        assert_eq!(keyboard.request_visibility(false, true, true), None);
         assert_eq!(keyboard.finish_touch(false), Some(false));
         assert_eq!(keyboard.finish_touch(false), None);
     }
@@ -1076,7 +1086,7 @@ mod tests {
     fn keyboard_close_is_immediate_without_active_touch() {
         let mut keyboard = VirtualKeyboardState::default();
 
-        assert_eq!(keyboard.request_visibility(false, false), Some(false));
+        assert_eq!(keyboard.request_visibility(false, false, true), Some(false));
         assert_eq!(keyboard.finish_touch(false), None);
     }
 
@@ -1084,8 +1094,8 @@ mod tests {
     fn keyboard_open_is_immediate_and_cancels_pending_close() {
         let mut keyboard = VirtualKeyboardState::default();
 
-        assert_eq!(keyboard.request_visibility(false, true), None);
-        assert_eq!(keyboard.request_visibility(true, true), Some(true));
+        assert_eq!(keyboard.request_visibility(false, true, true), None);
+        assert_eq!(keyboard.request_visibility(true, true, true), Some(true));
         assert_eq!(keyboard.finish_touch(false), None);
     }
 
@@ -1093,8 +1103,29 @@ mod tests {
     fn new_touch_keeps_keyboard_close_pending() {
         let mut keyboard = VirtualKeyboardState::default();
 
-        assert_eq!(keyboard.request_visibility(false, true), None);
+        assert_eq!(keyboard.request_visibility(false, true, true), None);
         assert_eq!(keyboard.finish_touch(true), None);
+        assert_eq!(keyboard.finish_touch(false), Some(false));
+    }
+
+    #[test]
+    fn keyboard_ignores_all_requests_before_first_interaction() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(true, true, false), None);
+        assert_eq!(keyboard.request_visibility(false, true, false), None);
+        assert_eq!(keyboard.finish_touch(true), None);
+        assert_eq!(keyboard.finish_touch(false), None);
+    }
+
+    #[test]
+    fn requests_before_first_interaction_do_not_affect_later_behavior() {
+        let mut keyboard = VirtualKeyboardState::default();
+
+        assert_eq!(keyboard.request_visibility(true, true, false), None);
+        assert_eq!(keyboard.request_visibility(false, true, false), None);
+        // The first interaction then behaves exactly like a fresh machine.
+        assert_eq!(keyboard.request_visibility(false, true, true), None);
         assert_eq!(keyboard.finish_touch(false), Some(false));
     }
 
