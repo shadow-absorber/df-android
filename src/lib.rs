@@ -249,6 +249,32 @@ fn set_virtual_keyboard_visibility(app: &AndroidApp, visible: bool) {
     }
 }
 
+fn should_run_player(activity_resumed: bool, window_available: bool) -> bool {
+    activity_resumed && window_available
+}
+
+fn frame_poll_timeout(
+    player_should_run: bool,
+    next_frame_time: Option<Instant>,
+    last_frame_time: Instant,
+) -> Option<Duration> {
+    player_should_run.then(|| {
+        next_frame_time
+            .and_then(|next| next.checked_duration_since(last_frame_time))
+            .unwrap_or_else(|| Duration::from_millis(100))
+    })
+}
+
+fn update_player_playback(player: Option<&ActivePlayer>, should_run: bool) {
+    let Some(player) = player else {
+        return;
+    };
+    let mut player = player.player.lock().unwrap();
+    if player.is_playing() != should_run {
+        player.set_is_playing(should_run);
+    }
+}
+
 #[derive(Clone)]
 pub struct EventSender {
     sender: Sender<RuffleEvent>,
@@ -302,6 +328,7 @@ async fn run(app: AndroidApp) {
     let mut quit = false;
     let (sender, receiver) = mpsc::channel::<RuffleEvent>();
     let mut native_window: Option<ndk::native_window::NativeWindow> = None;
+    let mut activity_resumed = false;
     let mut playerbox: Option<ActivePlayer> = None;
     let mut active_touch_pointer = None;
     let mut touch_gesture_active = false;
@@ -332,10 +359,10 @@ async fn run(app: AndroidApp) {
         let mut needs_redraw = false;
         let mut touch_finished = false;
         app.poll_events(
-            Some(
-                next_frame_time
-                    .and_then(|next| next.checked_duration_since(last_frame_time))
-                    .unwrap_or_else(|| Duration::from_millis(100)),
+            frame_poll_timeout(
+                should_run_player(activity_resumed, native_window.is_some()),
+                next_frame_time,
+                last_frame_time,
             ),
             |event| {
                 match event {
@@ -373,6 +400,7 @@ async fn run(app: AndroidApp) {
                             }
                         }
                         MainEvent::Resume { .. } => {
+                            activity_resumed = true;
                             if let Some(player) = playerbox.as_ref() {
                                 if let Some(window) = native_window.as_ref() {
                                     // [NA] For some reason we can get negative sizes during a resume...
@@ -406,6 +434,19 @@ async fn run(app: AndroidApp) {
                                     }
                                 }
                             }
+                            let should_run =
+                                should_run_player(activity_resumed, native_window.is_some());
+                            update_player_playback(playerbox.as_ref(), should_run);
+                            if should_run {
+                                let now = Instant::now();
+                                last_frame_time = now;
+                                next_frame_time = Some(now);
+                            }
+                        }
+                        MainEvent::Pause | MainEvent::Stop => {
+                            activity_resumed = false;
+                            update_player_playback(playerbox.as_ref(), false);
+                            next_frame_time = None;
                         }
                         MainEvent::InitWindow { .. } => {
                             native_window = app.native_window();
@@ -451,7 +492,15 @@ async fn run(app: AndroidApp) {
                                     )
                                     .unwrap();
                                 }
-                                player_lock.set_is_playing(true);
+                                let should_run = should_run_player(activity_resumed, true);
+                                if player_lock.is_playing() != should_run {
+                                    player_lock.set_is_playing(should_run);
+                                }
+                                if should_run {
+                                    let now = Instant::now();
+                                    last_frame_time = now;
+                                    next_frame_time = Some(now);
+                                }
                             } else {
                                 let renderer = unsafe {
                                     // TODO: make this take an Arc<Window> instead?
@@ -534,7 +583,9 @@ async fn run(app: AndroidApp) {
                                 } else {
                                     player_lock.fetch_root_movie(url, Vec::new(), Box::new(|_| {}))
                                 }
-                                player_lock.set_is_playing(true); // Desktop player will auto-play.
+                                if should_run_player(activity_resumed, true) {
+                                    player_lock.set_is_playing(true); // Desktop player will auto-play.
+                                }
 
                                 player_lock.set_letterbox(ruffle_core::config::Letterbox::On);
 
@@ -547,9 +598,9 @@ async fn run(app: AndroidApp) {
                             }
                         }
                         MainEvent::TerminateWindow { .. }  => {
-                            let player = &playerbox.as_ref().unwrap().player;
-                            let mut player_lock = player.lock().unwrap();
-                            player_lock.set_is_playing(false);
+                            update_player_playback(playerbox.as_ref(), false);
+                            native_window = None;
+                            next_frame_time = None;
                         }
                         MainEvent::InputAvailable => {
                             if let Ok(mut inputs) = app.input_events_iter() {
@@ -754,9 +805,11 @@ async fn run(app: AndroidApp) {
                 if visible && user_interacted {
                     reset_android_text_input(&app, &mut text_input);
                 }
-                if let Some(visible) = virtual_keyboard
-                    .request_visibility(visible, touch_gesture_active, user_interacted)
-                {
+                if let Some(visible) = virtual_keyboard.request_visibility(
+                    visible,
+                    touch_gesture_active,
+                    user_interacted,
+                ) {
                     set_virtual_keyboard_visibility(&app, visible);
                 }
             }
@@ -794,25 +847,31 @@ async fn run(app: AndroidApp) {
             set_virtual_keyboard_visibility(&app, visible);
         }
 
-        let new_time = Instant::now();
-        let dt = new_time.duration_since(last_frame_time).as_micros();
-        if dt > 0 {
-            last_frame_time = new_time;
-            if let Some(player) = playerbox.as_ref() {
-                if let Ok(mut player) = player.player.lock() {
-                    player.tick(FloatDuration::from_millis(dt as f64 / 1000.0));
-                    next_frame_time = Some(new_time + player.time_til_next_frame());
-                    needs_redraw = player.needs_render();
-                    let audio =
-                        <dyn Any>::downcast_mut::<AAudioAudioBackend>(player.audio_mut()).unwrap();
-                    audio.recreate_stream_if_needed();
+        let player_should_run = should_run_player(activity_resumed, native_window.is_some());
+        if player_should_run {
+            let new_time = Instant::now();
+            let dt = new_time.duration_since(last_frame_time).as_micros();
+            if dt > 0 {
+                last_frame_time = new_time;
+                if let Some(player) = playerbox.as_ref() {
+                    if let Ok(mut player) = player.player.lock() {
+                        player.tick(FloatDuration::from_millis(dt as f64 / 1000.0));
+                        next_frame_time = Some(new_time + player.time_til_next_frame());
+                        needs_redraw |= player.needs_render();
+                        let audio =
+                            <dyn Any>::downcast_mut::<AAudioAudioBackend>(player.audio_mut())
+                                .unwrap();
+                        audio.recreate_stream_if_needed();
+                    }
+                } else {
+                    next_frame_time = None;
                 }
-            } else {
-                next_frame_time = None;
             }
+        } else {
+            next_frame_time = None;
         }
 
-        if needs_redraw {
+        if needs_redraw && player_should_run {
             if let Some(player) = playerbox.as_ref() {
                 if let Ok(mut player) = player.player.lock() {
                     player.render();
@@ -1013,11 +1072,35 @@ fn android_main(app: AndroidApp) {
 #[cfg(test)]
 mod tests {
     use super::{
-        VirtualKeyboardState, motion_input_source, should_ignore_touch_action,
-        update_touch_gesture_state,
+        VirtualKeyboardState, frame_poll_timeout, motion_input_source, should_ignore_touch_action,
+        should_run_player, update_touch_gesture_state,
     };
     use android_activity::input::{MotionAction, Source};
     use ruffle_core::events::MouseInputSource;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn player_runs_only_with_resumed_activity_and_window() {
+        assert!(should_run_player(true, true));
+        assert!(!should_run_player(true, false));
+        assert!(!should_run_player(false, true));
+        assert!(!should_run_player(false, false));
+    }
+
+    #[test]
+    fn inactive_player_waits_indefinitely_for_events() {
+        let last_frame_time = Instant::now();
+        let next_frame_time = last_frame_time + Duration::from_millis(20);
+
+        assert_eq!(
+            frame_poll_timeout(false, Some(next_frame_time), last_frame_time),
+            None
+        );
+        assert_eq!(
+            frame_poll_timeout(true, Some(next_frame_time), last_frame_time),
+            Some(Duration::from_millis(20))
+        );
+    }
 
     #[test]
     fn touchscreen_is_touch_input() {
