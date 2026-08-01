@@ -37,7 +37,7 @@ impl AAudioAudioBackend {
             .format(AudioFormat::PCM_Float)
             .channel_count(2)
             .sample_rate(44100)
-            .performance_mode(ndk::audio::AudioPerformanceMode::LowLatency)
+            .performance_mode(ndk::audio::AudioPerformanceMode::PowerSaving)
             .data_callback(Box::new(move |_stream, data, len| {
                 let sl = unsafe {
                     std::slice::from_raw_parts_mut::<f32>(data as *mut f32, len as usize * 2)
