@@ -10,13 +10,16 @@ mod ui;
 use custom_event::RuffleEvent;
 
 use jni::{
-    JNIEnv, JavaVM,
+    EnvUnowned, JavaVM, Outcome,
     objects::{JObject, JString},
     sys::{self, jint, jobject},
 };
 use keycodes::{android_key_event_to_ruffle_key_descriptor, key_tag_to_key_descriptor};
 use std::any::Any;
+use std::ffi::c_void;
+use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{MutexGuard, mpsc};
 use std::time::Duration;
@@ -33,6 +36,8 @@ use android_activity::input::{
 };
 use android_activity::{AndroidApp, AndroidAppWaker, InputStatus, MainEvent, PollEvent};
 use backtrace::Backtrace;
+use jni::jni_sig;
+use jni::jni_str;
 use jni::objects::JClass;
 
 use audio::AAudioAudioBackend;
@@ -300,17 +305,19 @@ async fn run(app: AndroidApp) {
     };
 
     log::info!("Starting event loop...");
-    let trace_output;
-    let android_storage_dir;
-
-    unsafe {
-        let vm = JavaVM::from_raw(app.vm_as_ptr() as *mut sys::JavaVM).expect("JVM must exist");
-        let activity = JObject::from_raw(app.activity_as_ptr() as jobject);
-        let mut jni_env = vm.get_env().unwrap();
-        trace_output = JavaInterface::get_trace_output(&mut jni_env, &activity);
-        android_storage_dir = JavaInterface::get_android_data_storage_dir(&mut jni_env, &activity);
-        let _ = jni_env.set_rust_field(activity, "eventLoopHandle", sender.clone());
-    }
+    ACTIVITY.store(app.activity_as_ptr(), Ordering::Relaxed);
+    let (trace_output, android_storage_dir) = unsafe {
+        let vm = JavaVM::from_raw(app.vm_as_ptr() as *mut sys::JavaVM);
+        let activity_ptr = app.activity_as_ptr() as jobject;
+        vm.attach_current_thread(|env| -> jni::errors::Result<(Option<PathBuf>, PathBuf)> {
+            let activity = JObject::from_raw(env, activity_ptr);
+            let trace_output = JavaInterface::get_trace_output(env, &activity);
+            let android_storage_dir = JavaInterface::get_android_data_storage_dir(env, &activity);
+            env.set_rust_field(activity, jni_str!("eventLoopHandle"), sender.clone())?;
+            Ok((trace_output, android_storage_dir))
+        })
+        .expect("JVM must exist")
+    };
 
     while !quit {
         let mut needs_redraw = false;
@@ -455,9 +462,14 @@ async fn run(app: AndroidApp) {
                                     )
                                     .unwrap()
                                 };
-                                let (jvm, activity) = get_jvm().unwrap();
-                                let mut env = jvm.attach_current_thread().unwrap();
-                                let url = JavaInterface::get_swf_uri(&mut env, &activity);
+                                let (jvm, activity_ptr) = get_jvm();
+                                let url = jvm
+                                    .attach_current_thread(|env| -> jni::errors::Result<String> {
+                                        let activity =
+                                            unsafe { JObject::from_raw(env, activity_ptr) };
+                                        Ok(JavaInterface::get_swf_uri(env, &activity))
+                                    })
+                                    .unwrap();
                                 let movie_url = Url::parse(&url).unwrap_or_else(|_| Url::parse("file://movie.swf").unwrap());
                                 let player_id = PlayerId::new();
 
@@ -497,7 +509,13 @@ async fn run(app: AndroidApp) {
 
                                 let player = &playerbox.as_ref().unwrap().player;
                                 let mut player_lock = player.lock().unwrap();
-                                let bytes = JavaInterface::get_swf_bytes(&mut env, &activity);
+                                let bytes = jvm
+                                    .attach_current_thread(|env| -> jni::errors::Result<Option<Vec<u8>>> {
+                                        let activity =
+                                            unsafe { JObject::from_raw(env, activity_ptr) };
+                                        Ok(JavaInterface::get_swf_bytes(env, &activity))
+                                    })
+                                    .unwrap();
 
                                 if let Some(bytes) = bytes {
                                     let movie = SwfMovie::from_data(&bytes, url, None, None).unwrap();
@@ -670,9 +688,12 @@ async fn run(app: AndroidApp) {
                                                     handle_native_text_input(&mut player, action);
                                                 }
                                             }
-                                            if composition.is_none() {
-                                                reset_android_text_input(&app, &mut text_input);
-                                            }
+                                            // No IME state reset here: games-activity 4.x
+                                            // restarts the IME on every setState call, so
+                                            // re-arming the guard per keystroke would freeze
+                                            // the keyboard. The state machine diffs the full
+                                            // buffer snapshots and the guard is re-armed when
+                                            // the keyboard is shown.
                                             needs_redraw = true;
                                         }
 
@@ -756,9 +777,13 @@ async fn run(app: AndroidApp) {
                 if let Some(player) = playerbox.as_ref() {
                     log::warn!("preparing context menu!");
                     let items = player.player.lock().unwrap().prepare_context_menu();
-                    let (jvm, activity) = get_jvm().unwrap();
-                    let mut env = jvm.attach_current_thread().unwrap();
-                    JavaInterface::show_context_menu(&mut env, &activity, &items);
+                    let (jvm, activity_ptr) = get_jvm();
+                    jvm.attach_current_thread(|env| -> jni::errors::Result<()> {
+                        let activity = unsafe { JObject::from_raw(env, activity_ptr) };
+                        JavaInterface::show_context_menu(env, &activity, &items);
+                        Ok(())
+                    })
+                    .unwrap();
                 }
             }
         }
@@ -796,189 +821,234 @@ async fn run(app: AndroidApp) {
     }
 
     unsafe {
-        let vm = JavaVM::from_raw(app.vm_as_ptr() as *mut sys::JavaVM).expect("JVM must exist");
-        let activity = JObject::from_raw(app.activity_as_ptr() as jobject);
+        let vm = JavaVM::from_raw(app.vm_as_ptr() as *mut sys::JavaVM);
+        let activity_ptr = app.activity_as_ptr() as jobject;
         // Ensure that we take the EventSender back, or we'll leak it
-        let _: Result<EventSender, _> = vm
-            .get_env()
-            .unwrap()
-            .take_rust_field(activity, "eventLoopHandle");
+        let _: Result<EventSender, _> = vm.attach_current_thread(|env| {
+            let activity = JObject::from_raw(env, activity_ptr);
+            env.take_rust_field(activity, jni_str!("eventLoopHandle"))
+        });
     }
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keydown(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     this: JObject,
     key_tag: JString,
 ) {
-    let tag: String = env
-        .get_string(&key_tag)
-        .expect("Couldn't get java string!")
-        .into();
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let tag: String = key_tag
+            .try_to_string(env)
+            .expect("Couldn't get java string!");
 
-    let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
-    if let Some(desc) = key_tag_to_key_descriptor(&tag) {
-        let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
-            down: true,
-            key_descriptor: desc,
-        });
-    }
+        let event_loop: MutexGuard<Sender<RuffleEvent>> =
+            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
+        if let Some(desc) = key_tag_to_key_descriptor(&tag) {
+            let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
+                down: true,
+                key_descriptor: desc,
+            });
+        }
+        Ok(())
+    }));
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keyup(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     this: JObject,
     key_tag: JString,
 ) {
-    let tag: String = env
-        .get_string(&key_tag)
-        .expect("Couldn't get java string!")
-        .into();
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let tag: String = key_tag
+            .try_to_string(env)
+            .expect("Couldn't get java string!");
 
-    let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
-    if let Some(desc) = key_tag_to_key_descriptor(&tag) {
-        let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
-            down: false,
-            key_descriptor: desc,
-        });
+        let event_loop: MutexGuard<Sender<RuffleEvent>> =
+            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
+        if let Some(desc) = key_tag_to_key_descriptor(&tag) {
+            let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
+                down: false,
+                key_descriptor: desc,
+            });
+        }
+        Ok(())
+    }));
+}
+
+/// Resolves the outcome of a native JNI call, preserving the app's panic-hook
+/// based error reporting: errors and panics inside the native method are
+/// re-raised after [`EnvUnowned::with_env_no_catch`] returns.
+fn resolve_native_call(outcome: jni::EnvOutcome<'_, (), jni::errors::Error>) {
+    match outcome.into_outcome() {
+        Outcome::Ok(()) => {}
+        Outcome::Err(error) => panic!("JNI call in native method failed: {error:?}"),
+        Outcome::Panic(payload) => std::panic::resume_unwind(payload),
     }
 }
 
-pub fn get_jvm<'a>() -> Result<(jni::JavaVM, JObject<'a>), Box<dyn std::error::Error>> {
+/// The `PlayerActivity` instance, captured from `AndroidApp` once the event loop
+/// starts. Java calls that need the activity must use this instead of
+/// `ndk_context::android_context()`, which android-activity 0.6.1 initializes
+/// with the `Application` context instead of the `Activity`.
+static ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+pub fn get_jvm() -> (jni::JavaVM, jobject) {
     // Create a VM for executing Java calls
     let context = ndk_context::android_context();
-    let activity = unsafe { JObject::from_raw(context.context().cast()) };
-    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) }?;
+    let vm = unsafe { jni::JavaVM::from_raw(context.vm().cast()) };
+    let activity_ptr = ACTIVITY.load(Ordering::Relaxed);
+    assert!(
+        !activity_ptr.is_null(),
+        "ACTIVITY must be set before get_jvm is called"
+    );
+    let activity: jobject = activity_ptr.cast();
 
-    Ok((vm, activity))
+    (vm, activity)
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_requestContextMenu(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     this: JObject,
 ) {
-    let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
-    let _ = event_loop.send(RuffleEvent::RequestContextMenu);
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let event_loop: MutexGuard<Sender<RuffleEvent>> =
+            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
+        let _ = event_loop.send(RuffleEvent::RequestContextMenu);
+        Ok(())
+    }));
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_runContextMenuCallback(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     this: JObject,
     index: jint,
 ) {
-    let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
-    let _ = event_loop.send(RuffleEvent::RunContextMenuCallback(index as usize));
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let event_loop: MutexGuard<Sender<RuffleEvent>> =
+            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
+        let _ = event_loop.send(RuffleEvent::RunContextMenuCallback(index as usize));
+        Ok(())
+    }));
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_clearContextMenu(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     this: JObject,
 ) {
-    let event_loop: MutexGuard<Sender<RuffleEvent>> =
-        unsafe { env.get_rust_field(this, "eventLoopHandle") }.unwrap();
-    let _ = event_loop.send(RuffleEvent::ClearContextMenu);
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let event_loop: MutexGuard<Sender<RuffleEvent>> =
+            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
+        let _ = event_loop.send(RuffleEvent::ClearContextMenu);
+        Ok(())
+    }));
 }
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_nativeInit(
-    mut env: JNIEnv,
+    mut env: EnvUnowned,
     class: JClass,
     crash_callback: JObject,
 ) {
-    let crash_callback = env.new_global_ref(crash_callback).unwrap();
-    let jvm = env.get_java_vm().unwrap();
+    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
+        let crash_callback = env.new_global_ref(crash_callback).unwrap();
+        let jvm = env.get_java_vm().unwrap();
 
-    android_logger::init_once(
-        android_logger::Config::default()
-            .with_max_level(log::LevelFilter::Info)
-            .with_tag("ruffle")
-            .with_filter(
-                android_logger::FilterBuilder::new()
-                    .parse("warn,ruffle=info")
-                    .build(),
-            ),
-    );
+        android_logger::init_once(
+            android_logger::Config::default()
+                .with_max_level(log::LevelFilter::Info)
+                .with_tag("ruffle")
+                .with_filter(
+                    android_logger::FilterBuilder::new()
+                        .parse("warn,ruffle=info")
+                        .build(),
+                ),
+        );
 
-    panic::set_hook(Box::new(move |info| {
-        let backtrace = Backtrace::new();
-        let thread = thread::current();
-        let thread = thread.name().unwrap_or("<unnamed>");
-        let message = match info.payload().downcast_ref::<&'static str>() {
-            Some(s) => *s,
-            None => match info.payload().downcast_ref::<String>() {
-                Some(s) => &**s,
-                None => "Box<Any>",
-            },
-        };
+        panic::set_hook(Box::new(move |info| {
+            let backtrace = Backtrace::new();
+            let thread = thread::current();
+            let thread = thread.name().unwrap_or("<unnamed>");
+            let message = match info.payload().downcast_ref::<&'static str>() {
+                Some(s) => *s,
+                None => match info.payload().downcast_ref::<String>() {
+                    Some(s) => &**s,
+                    None => "Box<Any>",
+                },
+            };
 
-        let full = match info.location() {
-            Some(location) => format!(
-                "thread '{}' panicked at '{}': {}:{}\n{:?}",
-                thread,
-                message,
-                location.file(),
-                location.line(),
-                backtrace
-            ),
-            None => format!(
-                "thread '{}' panicked at '{}'\n{:?}",
-                thread, message, backtrace
-            ),
-        };
-        log::error!(target: "panic","{}", full);
+            let full = match info.location() {
+                Some(location) => format!(
+                    "thread '{}' panicked at '{}': {}:{}\n{:?}",
+                    thread,
+                    message,
+                    location.file(),
+                    location.line(),
+                    backtrace
+                ),
+                None => format!(
+                    "thread '{}' panicked at '{}'\n{:?}",
+                    thread, message, backtrace
+                ),
+            };
+            log::error!(target: "panic","{}", full);
 
-        let mut env = jvm.attach_current_thread().unwrap();
-        if env.exception_check().unwrap() {
-            // There's a pending exception, java will discover this on their own
-        } else {
-            let java_message = env.new_string(full).unwrap();
-            let crash_callback = env.new_global_ref(&crash_callback).unwrap();
-            env.call_method(
-                crash_callback,
-                "onCrash",
-                "(Ljava/lang/String;)V",
-                &[(&java_message).into()],
-            )
+            jvm.attach_current_thread(|env| -> jni::errors::Result<()> {
+                if env.exception_check() {
+                    // There's a pending exception, java will discover this on their own
+                    return Ok(());
+                }
+                let java_message = env.new_string(full).unwrap();
+                env.call_method(
+                    &crash_callback,
+                    jni_str!("onCrash"),
+                    jni_sig!("(Ljava/lang/String;)V"),
+                    &[(&java_message).into()],
+                )
+                .unwrap();
+                Ok(())
+            })
             .unwrap();
-        }
-    }));
+        }));
 
-    JavaInterface::init(&mut env, &class)
+        JavaInterface::init(env, &class);
+        Ok(())
+    }));
 }
 
 fn get_loc_in_window() -> (i32, i32) {
-    let (jvm, activity) = get_jvm().unwrap();
-    let mut env = jvm.attach_current_thread().unwrap();
+    let (jvm, activity_ptr) = get_jvm();
+    jvm.attach_current_thread(|env| -> jni::errors::Result<(i32, i32)> {
+        let activity = unsafe { JObject::from_raw(env, activity_ptr) };
 
-    // no worky :(
-    //ndk_glue::native_activity().show_soft_input(true);
+        // no worky :(
+        //ndk_glue::native_activity().show_soft_input(true);
 
-    JavaInterface::get_loc_in_window(&mut env, &activity)
+        Ok(JavaInterface::get_loc_in_window(env, &activity))
+    })
+    .unwrap()
 }
 
 fn get_view_size() -> Result<(i32, i32), Box<dyn std::error::Error>> {
-    let (jvm, activity) = get_jvm()?;
-    let mut env = jvm.attach_current_thread()?;
+    let (jvm, activity_ptr) = get_jvm();
+    jvm.attach_current_thread(|env| -> Result<(i32, i32), Box<dyn std::error::Error>> {
+        let activity = unsafe { JObject::from_raw(env, activity_ptr) };
 
-    let width = JavaInterface::get_surface_width(&mut env, &activity);
-    let height = JavaInterface::get_surface_height(&mut env, &activity);
+        let width = JavaInterface::get_surface_width(env, &activity);
+        let height = JavaInterface::get_surface_height(env, &activity);
 
-    Ok((width, height))
+        Ok((width, height))
+    })
 }
 
 #[unsafe(no_mangle)]

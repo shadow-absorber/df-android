@@ -205,14 +205,16 @@ class PlayerActivity : GameActivity() {
         // When false, we render behind any system UI windows.
         WindowCompat.setDecorFitsSystemWindows(window, false)
         hideSystemUI()
+        requestNoStatusBarFeature()
+        supportActionBar?.hide()
+        super.onCreate(savedInstanceState)
+        // The surface view (and its input connection) is created by GameActivity.onCreate,
+        // which setImeEditorInfoFields requires since games-activity 4.x.
         setImeEditorInfoFields(
             InputType.TYPE_CLASS_TEXT,
             EditorInfo.IME_ACTION_NONE,
             EditorInfo.IME_FLAG_NO_FULLSCREEN
         )
-        requestNoStatusBarFeature()
-        supportActionBar?.hide()
-        super.onCreate(savedInstanceState)
     }
 
     // Used by Rust

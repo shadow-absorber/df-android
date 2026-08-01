@@ -1,5 +1,5 @@
 use crate::{EventSender, custom_event::RuffleEvent, get_jvm, java::JavaInterface};
-use jni::{JNIEnv, objects::JObject};
+use jni::{Env, objects::JObject};
 use ruffle_core::backend::ui::{
     DialogResultFuture, FileFilter, FontDefinition, FullscreenError, LanguageIdentifier,
     MouseCursor, MultiDialogResultFuture, NullUiBackend, UiBackend,
@@ -26,22 +26,14 @@ impl AndroidUiBackend {
     }
 }
 
-fn with_player_activity<T>(callback: impl FnOnce(&mut JNIEnv, &JObject) -> T) -> Option<T> {
-    let (jvm, activity) = match get_jvm() {
-        Ok(context) => context,
-        Err(error) => {
-            log::error!("Unable to access PlayerActivity: {error}");
-            return None;
-        }
-    };
-    let mut env = match jvm.attach_current_thread() {
-        Ok(env) => env,
-        Err(error) => {
-            log::error!("Unable to attach clipboard operation to the JVM: {error}");
-            return None;
-        }
-    };
-    Some(callback(&mut env, &activity))
+fn with_player_activity<T>(callback: impl FnOnce(&mut Env, &JObject) -> T) -> Option<T> {
+    let (jvm, activity_ptr) = get_jvm();
+    jvm.attach_current_thread(|env| -> jni::errors::Result<T> {
+        let activity = unsafe { JObject::from_raw(env, activity_ptr) };
+        Ok(callback(env, &activity))
+    })
+    .map_err(|error| log::error!("Unable to attach clipboard operation to the JVM: {error}"))
+    .ok()
 }
 
 impl UiBackend for AndroidUiBackend {

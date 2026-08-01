@@ -19,10 +19,10 @@ strip = "symbols"
 
 [dependencies]
 
-android-activity = { version = "0.6.0", features = ["game-activity"] }
+android-activity = { version = "0.6.1", features = ["game-activity"] }
 android_logger = "0.15.1"
 
-jni = "0.21.1"
+jni = "0.22.4"
 ndk = { version = "0.9.0", features = ["audio"] }
 ndk-context = "0.1.1"
 
@@ -43,17 +43,17 @@ ruffle_render_wgpu = { path = "../ruffle/render/wgpu" }
 ruffle_video_software = { path = "../ruffle/video/software" }
 ruffle_frontend_utils = { path = "../ruffle/frontend-utils", default-features = false, features = ["fs", "navigator", "rustls-tls"] }
 
-log = "0.4.32"
+log = "0.4.33"
 
 # Redirect tracing to log
 tracing = {version = "0.1.44", features = ["log", "log-always"]}
 backtrace = "0.3.76"
 async-task = "4.7.1"
 
-url = "2.5.2"
-webbrowser = "1.1.0"
+url = "2.5.8"
+webbrowser = "1.2.2"
 
-tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"]}
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"]}
 
 [features]
 jpegxr = ["ruffle_core/jpegxr"]
