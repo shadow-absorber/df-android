@@ -11,10 +11,10 @@ use custom_event::RuffleEvent;
 
 use jni::{
     EnvUnowned, JavaVM, Outcome,
-    objects::{JObject, JString},
+    objects::JObject,
     sys::{self, jint, jobject},
 };
-use keycodes::{android_key_event_to_ruffle_key_descriptor, key_tag_to_key_descriptor};
+use keycodes::android_key_event_to_ruffle_key_descriptor;
 use std::any::Any;
 use std::ffi::c_void;
 use std::path::PathBuf;
@@ -750,31 +750,6 @@ async fn run(app: AndroidApp) {
                     set_virtual_keyboard_visibility(&app, visible);
                 }
             }
-            Ok(RuffleEvent::VirtualKeyEvent {
-                down,
-                key_descriptor,
-            }) => {
-                if let Some(player) = playerbox.as_ref() {
-                    let event = if down {
-                        PlayerEvent::KeyDown {
-                            key: key_descriptor,
-                        }
-                    } else {
-                        PlayerEvent::KeyUp {
-                            key: key_descriptor,
-                        }
-                    };
-                    player.player.lock().unwrap().handle_event(event);
-
-                    if down {
-                        // TODO: Add shift/capslock and pass in uppercase characters accordingly
-                        if let LogicalKey::Character(c) = key_descriptor.logical_key {
-                            let event = PlayerEvent::TextInput { codepoint: c };
-                            player.player.lock().unwrap().handle_event(event);
-                        }
-                    }
-                }
-            }
             Ok(RuffleEvent::RunContextMenuCallback(index)) => {
                 if let Some(player) = playerbox.as_ref() {
                     player
@@ -845,54 +820,6 @@ async fn run(app: AndroidApp) {
             env.take_rust_field(activity, jni_str!("eventLoopHandle"))
         });
     }
-}
-
-#[unsafe(no_mangle)]
-#[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keydown(
-    mut env: EnvUnowned,
-    this: JObject,
-    key_tag: JString,
-) {
-    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        let tag: String = key_tag
-            .try_to_string(env)
-            .expect("Couldn't get java string!");
-
-        let event_loop: MutexGuard<Sender<RuffleEvent>> =
-            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
-        if let Some(desc) = key_tag_to_key_descriptor(&tag) {
-            let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
-                down: true,
-                key_descriptor: desc,
-            });
-        }
-        Ok(())
-    }));
-}
-
-#[unsafe(no_mangle)]
-#[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_keyup(
-    mut env: EnvUnowned,
-    this: JObject,
-    key_tag: JString,
-) {
-    resolve_native_call(env.with_env_no_catch(|env| -> jni::errors::Result<()> {
-        let tag: String = key_tag
-            .try_to_string(env)
-            .expect("Couldn't get java string!");
-
-        let event_loop: MutexGuard<Sender<RuffleEvent>> =
-            unsafe { env.get_rust_field(this, jni_str!("eventLoopHandle")) }.unwrap();
-        if let Some(desc) = key_tag_to_key_descriptor(&tag) {
-            let _ = event_loop.send(RuffleEvent::VirtualKeyEvent {
-                down: false,
-                key_descriptor: desc,
-            });
-        }
-        Ok(())
-    }));
 }
 
 /// Resolves the outcome of a native JNI call, preserving the app's panic-hook

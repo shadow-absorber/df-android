@@ -35,8 +35,6 @@ In no particular order:
 - [x] Ability to show the built-in virtual keyboard (softinput), for text input
 - [ ] Controller/Gamepad input?
   - Mapped to key presses and/or virtual mouse pointer
-- [ ] Own custom keyboard overlay, maybe even per-content configs
-  - Not an overlay, and not per-content, but custom keyboard is there
 - [ ] Error/panic handling
 - [ ] Loading "animation" (spinner)
 - [ ] Alternative audio backend (OpenSL ES) for Android < 8

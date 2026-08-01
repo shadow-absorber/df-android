@@ -1,6 +1,5 @@
 package rs.ruffle
 
-import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
@@ -11,14 +10,9 @@ import android.os.Build.VERSION_CODES
 import android.os.Bundle
 import android.text.InputType
 import android.util.Log
-import android.view.MotionEvent
-import android.view.View
-import android.view.ViewGroup
 import android.view.Window
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -76,8 +70,6 @@ class PlayerActivity : GameActivity() {
     private val surfaceHeight: Int
         get() = mSurfaceView.height
 
-    private external fun keydown(keyTag: String)
-    private external fun keyup(keyTag: String)
     private external fun requestContextMenu()
     private external fun runContextMenuCallback(index: Int)
     private external fun clearContextMenu()
@@ -116,50 +108,8 @@ class PlayerActivity : GameActivity() {
     }
 
     override fun onCreateSurfaceView() {
-        val inflater = layoutInflater
-
-        @SuppressLint("InflateParams")
-        val layout = inflater.inflate(R.layout.keyboard, null) as ConstraintLayout
-
-        contentViewId = View.generateViewId()
-        layout.id = contentViewId
-        setContentView(layout)
-        mSurfaceView = InputEnabledSurfaceView(this)
-
+        super.onCreateSurfaceView()
         mSurfaceView.contentDescription = "Ruffle Player"
-
-        val placeholder = findViewById<View>(R.id.placeholder)
-        val pars = placeholder.layoutParams as ConstraintLayout.LayoutParams
-        val parent = placeholder.parent as ViewGroup
-        val index = parent.indexOfChild(placeholder)
-        parent.removeView(placeholder)
-        parent.addView(mSurfaceView, index)
-        mSurfaceView.setLayoutParams(pars)
-        val keys = gatherAllDescendantsOfType<Button>(
-            layout.getViewById(R.id.keyboard),
-            Button::class.java
-        )
-        for (b in keys) {
-            b.setOnTouchListener { view: View, motionEvent: MotionEvent ->
-                val tag = view.tag as String
-                if (motionEvent.action == MotionEvent.ACTION_DOWN) keydown(tag)
-                if (motionEvent.action == MotionEvent.ACTION_UP) keyup(tag)
-                view.performClick()
-                false
-            }
-        }
-        layout.findViewById<View>(R.id.button_kb).setOnClickListener {
-            val keyboard = layout.getViewById(R.id.keyboard)
-            if (keyboard.visibility == View.VISIBLE) {
-                keyboard.visibility = View.GONE
-            } else {
-                keyboard.visibility = View.VISIBLE
-            }
-        }
-        layout.requestLayout()
-        layout.requestFocus()
-        mSurfaceView.holder.addCallback(this)
-        ViewCompat.setOnApplyWindowInsetsListener(mSurfaceView, this)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -242,18 +192,6 @@ class PlayerActivity : GameActivity() {
 
         @JvmStatic
         private external fun nativeInit(crashCallback: CrashCallback)
-
-        private fun <T> gatherAllDescendantsOfType(v: View, t: Class<*>): List<T> {
-            val result: MutableList<T> = ArrayList()
-            @Suppress("UNCHECKED_CAST")
-            if (t.isInstance(v)) result.add(v as T)
-            if (v is ViewGroup) {
-                for (i in 0 until v.childCount) {
-                    result.addAll(gatherAllDescendantsOfType(v.getChildAt(i), t))
-                }
-            }
-            return result
-        }
     }
 
     fun interface CrashCallback {

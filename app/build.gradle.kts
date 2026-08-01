@@ -140,7 +140,6 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     implementation(libs.androidx.games.activity)
-    implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.appcompat)
     androidTestImplementation(libs.androidx.uiautomator)
     androidTestImplementation(libs.androidx.test.runner)

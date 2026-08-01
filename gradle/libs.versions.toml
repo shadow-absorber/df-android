@@ -9,7 +9,6 @@ lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.13.0"
 composeBom = "2026.06.01"
 gamesActivity = "4.4.2" # Needs to be in sync with android-activity crate (0.6.1 requires games-activity 4.4.0+)
-constraintlayout = "2.2.2"
 appcompat = "1.7.1"
 ktlint = "14.2.0"
 uiautomator = "2.4.0"
@@ -30,7 +29,6 @@ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
 androidx-games-activity = { group = "androidx.games", name = "games-activity", version.ref = "gamesActivity" }
-androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-uiautomator = { group = "androidx.test.uiautomator", name = "uiautomator", version.ref = "uiautomator" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidXTestRunner" }
