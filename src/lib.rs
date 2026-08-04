@@ -41,6 +41,7 @@ use jni::jni_str;
 use jni::objects::JClass;
 
 use audio::AAudioAudioBackend;
+use dragonfable_cache::{Config, DragonFableCachingNavigator};
 use url::Url;
 
 use ruffle_common::duration::FloatDuration;
@@ -290,6 +291,7 @@ impl EventSender {
 }
 
 /// A bare-bones executor that schedules tasks on the winit event loop.
+#[derive(Clone)]
 struct AndroidExecutor {
     event_loop: EventSender,
     player_id: PlayerId,
@@ -342,16 +344,20 @@ async fn run(app: AndroidApp) {
 
     log::info!("Starting event loop...");
     ACTIVITY.store(app.activity_as_ptr(), Ordering::Relaxed);
-    let (trace_output, android_storage_dir) = unsafe {
+    let (trace_output, android_storage_dir, df_cache_dir) = unsafe {
         let vm = JavaVM::from_raw(app.vm_as_ptr() as *mut sys::JavaVM);
         let activity_ptr = app.activity_as_ptr() as jobject;
-        vm.attach_current_thread(|env| -> jni::errors::Result<(Option<PathBuf>, PathBuf)> {
-            let activity = JObject::from_raw(env, activity_ptr);
-            let trace_output = JavaInterface::get_trace_output(env, &activity);
-            let android_storage_dir = JavaInterface::get_android_data_storage_dir(env, &activity);
-            env.set_rust_field(activity, jni_str!("eventLoopHandle"), sender.clone())?;
-            Ok((trace_output, android_storage_dir))
-        })
+        vm.attach_current_thread(
+            |env| -> jni::errors::Result<(Option<PathBuf>, PathBuf, PathBuf)> {
+                let activity = JObject::from_raw(env, activity_ptr);
+                let trace_output = JavaInterface::get_trace_output(env, &activity);
+                let android_storage_dir =
+                    JavaInterface::get_android_data_storage_dir(env, &activity);
+                let df_cache_dir = JavaInterface::get_df_cache_dir(env, &activity);
+                env.set_rust_field(activity, jni_str!("eventLoopHandle"), sender.clone())?;
+                Ok((trace_output, android_storage_dir, df_cache_dir))
+            },
+        )
         .expect("JVM must exist")
     };
 
@@ -536,17 +542,26 @@ async fn run(app: AndroidApp) {
                                     player_id,
                                 };
 
-                                let navigator = ExternalNavigatorBackend::new(
-                                    movie_url.clone(),
-                                    None,
-                                    None,
+                                let base_domain = movie_url.host_str().unwrap_or_default().to_string();
+                                let navigator = DragonFableCachingNavigator::new(
+                                    ExternalNavigatorBackend::new(
+                                        movie_url.clone(),
+                                        None,
+                                        None,
+                                        future_spawner.clone(),
+                                        None,
+                                        true,
+                                        Default::default(),
+                                        ruffle_core::backend::navigator::SocketMode::Allow,
+                                        Rc::new(PlayingContent::DirectFile(ContentDescriptor::new_remote(movie_url))),
+                                        AndroidNavigatorInterface,
+                                    ),
+                                    Config {
+                                        cache_dir: df_cache_dir.clone(),
+                                        base_domain,
+                                        max_cache_bytes: DF_CACHE_MAX_BYTES,
+                                    },
                                     future_spawner,
-                                    None,
-                                    true,
-                                    Default::default(),
-                                    ruffle_core::backend::navigator::SocketMode::Allow,
-                                    Rc::new(PlayingContent::DirectFile(ContentDescriptor::new_remote(movie_url))),
-                                    AndroidNavigatorInterface,
                                 );
 
                                 playerbox = Some(ActivePlayer {
@@ -907,6 +922,9 @@ fn resolve_native_call(outcome: jni::EnvOutcome<'_, (), jni::errors::Error>) {
 /// `ndk_context::android_context()`, which android-activity 0.6.1 initializes
 /// with the `Application` context instead of the `Activity`.
 static ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+
+/// Upper bound on the on-disk cache; entries are evicted oldest-first beyond it.
+const DF_CACHE_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 pub fn get_jvm() -> (jni::JavaVM, jobject) {
     // Create a VM for executing Java calls

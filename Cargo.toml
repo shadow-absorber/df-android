@@ -53,6 +53,8 @@ async-task = "4.7.1"
 url = "2.5.8"
 webbrowser = "1.2.2"
 
+dragonfable-cache = { path = "../df-cache-layer" }
+
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"]}
 
 [features]

@@ -861,6 +861,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dragonfable-cache"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "base64",
+ "log",
+ "reqwest",
+ "roxmltree",
+ "ruffle_core",
+ "ruffle_frontend_utils",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "either"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3013,6 +3028,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "roxmltree"
+version = "0.21.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1964b10c76125c36f8afe190065a4bf9a87bf324842c05701330bba9f1cacbb"
+dependencies = [
+ "memchr",
+]
+
+[[package]]
 name = "ruffle_android"
 version = "0.1.0"
 dependencies = [
@@ -3020,6 +3044,7 @@ dependencies = [
  "android_logger",
  "async-task",
  "backtrace",
+ "dragonfable-cache",
  "jni",
  "log",
  "ndk",

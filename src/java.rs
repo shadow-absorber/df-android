@@ -23,6 +23,7 @@ pub struct JavaInterface {
     get_trace_output: JMethodID,
     get_loc_in_window: JMethodID,
     get_android_data_storage_dir: JMethodID,
+    get_df_cache_dir: JMethodID,
     get_clipboard_content: JMethodID,
     set_clipboard_content: JMethodID,
 }
@@ -165,6 +166,19 @@ impl JavaInterface {
         PathBuf::from(path)
     }
 
+    pub fn get_df_cache_dir(env: &mut Env, this: &JObject) -> PathBuf {
+        let result = unsafe {
+            env.call_method_unchecked(this, Self::get().get_df_cache_dir, ReturnType::Object, &[])
+        };
+        let object = result
+            .expect("getDfCacheDir() must never throw")
+            .l()
+            .unwrap();
+        let string_object = unsafe { JString::from_raw(env, object.as_raw() as jstring) };
+        let path = string_object.try_to_string(env).unwrap();
+        PathBuf::from(path)
+    }
+
     pub fn get_clipboard_content(env: &mut Env, this: &JObject) -> String {
         let result = unsafe {
             env.call_method_unchecked(
@@ -247,6 +261,13 @@ impl JavaInterface {
                     jni_sig!("()Ljava/lang/String;"),
                 )
                 .expect("getAndroidDataStorageDir must exist"),
+            get_df_cache_dir: env
+                .get_method_id(
+                    class,
+                    jni_str!("getDfCacheDir"),
+                    jni_sig!("()Ljava/lang/String;"),
+                )
+                .expect("getDfCacheDir must exist"),
             get_clipboard_content: env
                 .get_method_id(
                     class,

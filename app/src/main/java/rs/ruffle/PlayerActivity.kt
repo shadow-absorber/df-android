@@ -107,6 +107,16 @@ class PlayerActivity : GameActivity() {
         return storageDirPath
     }
 
+    @Suppress("unused")
+    // Used by Rust
+    private fun getDfCacheDir(): String {
+        val cacheDir = File(cacheDir, "df_cache")
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        return cacheDir.absolutePath
+    }
+
     override fun onCreateSurfaceView() {
         super.onCreateSurfaceView()
         mSurfaceView.contentDescription = "Ruffle Player"
