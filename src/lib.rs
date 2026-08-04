@@ -942,7 +942,7 @@ pub fn get_jvm() -> (jni::JavaVM, jobject) {
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_requestContextMenu(
+pub unsafe extern "C" fn Java_itmr_dragonfable_PlayerActivity_requestContextMenu(
     mut env: EnvUnowned,
     this: JObject,
 ) {
@@ -956,7 +956,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_requestContextMenu(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_runContextMenuCallback(
+pub unsafe extern "C" fn Java_itmr_dragonfable_PlayerActivity_runContextMenuCallback(
     mut env: EnvUnowned,
     this: JObject,
     index: jint,
@@ -971,7 +971,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_runContextMenuCallback(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_clearContextMenu(
+pub unsafe extern "C" fn Java_itmr_dragonfable_PlayerActivity_clearContextMenu(
     mut env: EnvUnowned,
     this: JObject,
 ) {
@@ -985,7 +985,7 @@ pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_clearContextMenu(
 
 #[unsafe(no_mangle)]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn Java_rs_ruffle_PlayerActivity_nativeInit(
+pub unsafe extern "C" fn Java_itmr_dragonfable_PlayerActivity_nativeInit(
     mut env: EnvUnowned,
     class: JClass,
     crash_callback: JObject,
