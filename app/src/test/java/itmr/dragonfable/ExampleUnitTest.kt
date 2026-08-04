@@ -1,4 +1,4 @@
-package rs.ruffle
+package itmr.dragonfable
 
 import org.junit.Assert.assertEquals
 import org.junit.Test

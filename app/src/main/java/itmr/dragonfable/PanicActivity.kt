@@ -1,10 +1,10 @@
-package rs.ruffle
+package itmr.dragonfable
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import rs.ruffle.ui.theme.RuffleTheme
+import itmr.dragonfable.ui.theme.RuffleTheme
 
 class PanicActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

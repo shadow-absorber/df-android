@@ -1,4 +1,4 @@
-package rs.ruffle
+package itmr.dragonfable
 
 import android.R
 import android.content.ComponentName
@@ -19,7 +19,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-private const val BASIC_SAMPLE_PACKAGE = "rs.ruffle"
+private const val BASIC_SAMPLE_PACKAGE = "itmr.dragonfable"
 private const val LAUNCH_TIMEOUT = 5000L
 
 @RunWith(AndroidJUnit4::class)
@@ -50,14 +50,14 @@ class SmokeTest {
         swfFile = File.createTempFile("movie", ".swf", context.cacheDir)
         val resources = InstrumentationRegistry.getInstrumentation().context.resources
         val inStream = resources.openRawResource(
-            rs.ruffle.test.R.raw.helloflash
+            itmr.dragonfable.test.R.raw.helloflash
         )
         val bytes = inStream.readBytes()
         swfFile.writeBytes(bytes)
         val intent = context.packageManager.getLaunchIntentForPackage(
             BASIC_SAMPLE_PACKAGE
         )?.apply {
-            component = ComponentName("rs.ruffle", "rs.ruffle.PlayerActivity")
+            component = ComponentName("itmr.dragonfable", "itmr.dragonfable.PlayerActivity")
             data = Uri.fromFile(swfFile)
             putExtra("traceOutput", traceOutput.absolutePath)
             // Clear out any previous instances

@@ -1,4 +1,4 @@
-package rs.ruffle.ui.theme
+package itmr.dragonfable.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme

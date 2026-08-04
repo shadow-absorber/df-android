@@ -20,11 +20,11 @@ plugins {
 }
 
 android {
-    namespace = "rs.ruffle"
+    namespace = "itmr.dragonfable"
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "rs.ruffle"
+        applicationId = "itmr.dragonfable"
         minSdk = 26
         targetSdk = 35
         versionCode = 260720

@@ -1,4 +1,4 @@
-package rs.ruffle
+package itmr.dragonfable
 
 import android.content.ClipData
 import android.content.ClipboardManager

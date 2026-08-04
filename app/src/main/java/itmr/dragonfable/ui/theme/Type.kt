@@ -1,4 +1,4 @@
-package rs.ruffle.ui.theme
+package itmr.dragonfable.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
