@@ -1000,7 +1000,7 @@ pub unsafe extern "C" fn Java_itmr_dragonfable_PlayerActivity_nativeInit(
                 .with_tag("ruffle")
                 .with_filter(
                     android_logger::FilterBuilder::new()
-                        .parse("warn,ruffle=info")
+                        .parse("warn,ruffle=info,dragonfable_cache=info")
                         .build(),
                 ),
         );
