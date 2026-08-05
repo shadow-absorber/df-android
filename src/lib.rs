@@ -276,6 +276,17 @@ fn update_player_playback(player: Option<&ActivePlayer>, should_run: bool) {
     }
 }
 
+fn android_renderer(player: &mut Player) -> &mut WgpuRenderBackend<SwapChainTarget> {
+    <dyn Any>::downcast_mut(player.renderer_mut()).unwrap()
+}
+
+fn android_surface_target(window: &ndk::native_window::NativeWindow) -> wgpu::SurfaceTargetUnsafe {
+    wgpu::SurfaceTargetUnsafe::RawHandle {
+        raw_display_handle: RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+        raw_window_handle: window.window_handle().unwrap().into(),
+    }
+}
+
 #[derive(Clone)]
 pub struct EventSender {
     sender: Sender<RuffleEvent>,
@@ -407,39 +418,6 @@ async fn run(app: AndroidApp) {
                         }
                         MainEvent::Resume { .. } => {
                             activity_resumed = true;
-                            if let Some(player) = playerbox.as_ref() {
-                                if let Some(window) = native_window.as_ref() {
-                                    // [NA] For some reason we can get negative sizes during a resume...
-                                    if window.width() > 0 && window.height() > 0 {
-                                        unsafe {
-                                            let mut player = player
-                                                .player
-                                                .lock()
-                                                .unwrap();
-
-                                            let renderer = <dyn Any>::downcast_mut::<WgpuRenderBackend<SwapChainTarget>>(
-                                                player.renderer_mut(),
-                                            )
-                                            .unwrap();
-
-                                            renderer.recreate_surface_unsafe(
-                                                wgpu::SurfaceTargetUnsafe::RawHandle {
-                                                    raw_display_handle:
-                                                        RawDisplayHandle::Android(
-                                                            AndroidDisplayHandle::new(),
-                                                        ),
-                                                    raw_window_handle: window
-                                                        .window_handle()
-                                                        .unwrap()
-                                                        .into(),
-                                                },
-                                                (window.width() as u32, window.height() as u32),
-                                            )
-                                            .unwrap();
-                                        }
-                                    }
-                                }
-                            }
                             let should_run =
                                 should_run_player(activity_resumed, native_window.is_some());
                             update_player_playback(playerbox.as_ref(), should_run);
@@ -479,24 +457,12 @@ async fn run(app: AndroidApp) {
                             if let Some(activeplayer) = &playerbox {
                                 let mut player_lock = activeplayer.player.lock().unwrap();
                                 unsafe {
-                                    let renderer = <dyn Any>::downcast_mut::<WgpuRenderBackend<SwapChainTarget>>(
-                                        player_lock.renderer_mut(),
-                                    )
-                                    .unwrap();
-
-                                    renderer.recreate_surface_unsafe(
-                                        wgpu::SurfaceTargetUnsafe::RawHandle {
-                                            raw_display_handle: RawDisplayHandle::Android(
-                                                AndroidDisplayHandle::new(),
-                                            ),
-                                            raw_window_handle: window
-                                                .window_handle()
-                                                .unwrap()
-                                                .into(),
-                                        },
-                                        (window.width() as u32, window.height() as u32),
-                                    )
-                                    .unwrap();
+                                    android_renderer(&mut player_lock)
+                                        .recreate_surface_unsafe(
+                                            android_surface_target(window),
+                                            (window.width() as u32, window.height() as u32),
+                                        )
+                                        .unwrap();
                                 }
                                 let should_run = should_run_player(activity_resumed, true);
                                 if player_lock.is_playing() != should_run {
@@ -511,15 +477,7 @@ async fn run(app: AndroidApp) {
                                 let renderer = unsafe {
                                     // TODO: make this take an Arc<Window> instead?
                                     WgpuRenderBackend::for_window_unsafe(
-                                        wgpu::SurfaceTargetUnsafe::RawHandle {
-                                            raw_display_handle: RawDisplayHandle::Android(
-                                                AndroidDisplayHandle::new(),
-                                            ),
-                                            raw_window_handle: window
-                                                .window_handle()
-                                                .unwrap()
-                                                .into(),
-                                        },
+                                        android_surface_target(window),
                                         (dimensions.width, dimensions.height),
                                         wgpu::Backends::GL,
                                         wgpu::PowerPreference::HighPerformance,
@@ -614,6 +572,10 @@ async fn run(app: AndroidApp) {
                         }
                         MainEvent::TerminateWindow { .. }  => {
                             update_player_playback(playerbox.as_ref(), false);
+                            if let Some(player) = playerbox.as_ref() {
+                                let mut player = player.player.lock().unwrap();
+                                android_renderer(&mut player).suspend_surface();
+                            }
                             native_window = None;
                             next_frame_time = None;
                         }
