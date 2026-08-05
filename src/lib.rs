@@ -924,7 +924,7 @@ fn resolve_native_call(outcome: jni::EnvOutcome<'_, (), jni::errors::Error>) {
 static ACTIVITY: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
 
 /// Upper bound on the on-disk cache; entries are evicted oldest-first beyond it.
-const DF_CACHE_MAX_BYTES: u64 = 100 * 1024 * 1024;
+const DF_CACHE_MAX_BYTES: u64 = 256 * 1024 * 1024;
 
 pub fn get_jvm() -> (jni::JavaVM, jobject) {
     // Create a VM for executing Java calls
