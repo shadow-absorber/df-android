@@ -1,5 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Theme.Ruffle" parent="Theme.AppCompat.Light.DarkActionBar">
+        <!-- Keep the launcher's dark red as the app background: without this,
+             force-dark inverts the light theme and the area around the game
+             surface shows up black. -->
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:windowBackground">@color/launcher_background</item>
+        <item name="android:windowSplashScreenBackground">@color/launcher_background</item>
+        <item name="android:statusBarColor">@color/launcher_background</item>
+        <item name="android:navigationBarColor">@color/launcher_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
 </resources>
