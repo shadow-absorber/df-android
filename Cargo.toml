@@ -27,7 +27,7 @@ ndk = { version = "0.9.0", features = ["audio"] }
 ndk-context = "0.1.1"
 
 # Have to follow Ruffle with this.
-wgpu = "29"
+wgpu = "27.0.1"
 
 ruffle_common = { path = "../ruffle/core/common" }
 ruffle_core = { path = "../ruffle/core", features = [

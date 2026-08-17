@@ -282,7 +282,7 @@ fn android_renderer(player: &mut Player) -> &mut WgpuRenderBackend<SwapChainTarg
 
 fn android_surface_target(window: &ndk::native_window::NativeWindow) -> wgpu::SurfaceTargetUnsafe {
     wgpu::SurfaceTargetUnsafe::RawHandle {
-        raw_display_handle: Some(RawDisplayHandle::Android(AndroidDisplayHandle::new())),
+        raw_display_handle: RawDisplayHandle::Android(AndroidDisplayHandle::new()),
         raw_window_handle: window.window_handle().unwrap().into(),
     }
 }
