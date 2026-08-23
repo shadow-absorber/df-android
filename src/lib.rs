@@ -58,6 +58,8 @@ use ruffle_frontend_utils::{
     content::ContentDescriptor,
 };
 
+const APP_BACKGROUND: ruffle_core::Color = ruffle_core::Color::from_rgb(0x660000, 255);
+
 use crate::navigator::AndroidNavigatorInterface;
 use crate::text_input::{
     NativeTextControl, TextInputAction, TextInputSnapshot, TextInputStateMachine,
@@ -540,6 +542,9 @@ async fn run(app: AndroidApp) {
 
                                 let player = &playerbox.as_ref().unwrap().player;
                                 let mut player_lock = player.lock().unwrap();
+                                // Must be set before the movie loads: Ruffle ignores the SWF's
+                                // SetBackgroundColor tag when the stage already has a color.
+                                player_lock.set_background_color(Some(APP_BACKGROUND));
                                 let bytes = jvm
                                     .attach_current_thread(|env| -> jni::errors::Result<Option<Vec<u8>>> {
                                         let activity =
@@ -560,7 +565,9 @@ async fn run(app: AndroidApp) {
                                     player_lock.set_is_playing(true); // Desktop player will auto-play.
                                 }
 
-                                player_lock.set_letterbox(ruffle_core::config::Letterbox::On);
+                                // No letterbox: Ruffle draws hard-coded black bars when
+                                // letterboxing, and we want the app background instead.
+                                player_lock.set_letterbox(ruffle_core::config::Letterbox::Off);
 
                                 player_lock.set_viewport_dimensions(dimensions);
 
