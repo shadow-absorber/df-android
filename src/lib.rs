@@ -536,6 +536,7 @@ async fn run(app: AndroidApp) {
                                             .with_video(
                                                 ruffle_video_software::backend::SoftwareVideoBackend::new(),
                                             )
+                                            .with_touch_hover_events(true)
                                         .build(),
                                     }
                                 );
